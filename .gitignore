@@ -1,1 +1,4 @@
 /libs/
+/obj/
+/bin/
+/.idea/
