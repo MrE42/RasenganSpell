@@ -1,0 +1,11 @@
+﻿{
+  "name": "RasenganSpell",
+  "version_number": "1.0.0",
+  "website_url": "https://github.com/MrE42/RasenganSpell",
+  "description": "Adds the Rasengan spell to Mage Arena. Summon a swirling ball of chakra in your hand and blast enemies away!",
+  "dependencies": [
+    "BepInEx-BepInExPack_MageArena-5.4.2100",
+    "D1GQ-BlackMagicAPI-2.4.0",
+    "D1GQ-FishUtilities-1.2.4"
+  ]
+}

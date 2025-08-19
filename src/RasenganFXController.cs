@@ -1,8 +1,12 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace RasenganSpell
 {
+    /// <summary>
+    /// Controls the visual appearance of the Rasengan orb.  It spins various child
+    /// planes, flickers the emissive intensity, and exposes a simple setup helper.
+    /// </summary>
     public class RasenganFXController : MonoBehaviour
     {
         public enum AxisSpace { World, Self }
@@ -29,13 +33,16 @@ namespace RasenganSpell
 
         private MaterialPropertyBlock _mpb;
 
-        private void Awake() { _mpb = new MaterialPropertyBlock(); }
+        private void Awake()
+        {
+            _mpb = new MaterialPropertyBlock();
+        }
 
         private void Update()
         {
-            float s = Mathf.Sin(Time.time * flickerFreq) * 0.5f + 0.5f;
+            float s  = Mathf.Sin(Time.time * flickerFreq) * 0.5f + 0.5f;
             float em = Mathf.Lerp(emissionMin, emissionMax, s + (Random.value - 0.5f) * flickerNoise);
-            Color c = BaseColor * baseColorIntensity;
+            Color c  = BaseColor * baseColorIntensity;
 
             foreach (var L in layers)
             {
@@ -57,7 +64,11 @@ namespace RasenganSpell
             }
         }
 
-        // Attaches controller + auto-wires three plane children by name.
+        /// <summary>
+        /// Attaches a controller to the given GameObject and attempts to auto-assign the
+        /// three plane children named "Plane", "Plane1", and "Plane 12".  Returns the
+        /// controller component.
+        /// </summary>
         public static RasenganFXController AttachAndAutoSetup(GameObject root)
         {
             if (!root) return null;

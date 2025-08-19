@@ -13,7 +13,8 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
 
     <!-- Packaging -->
-    <PackageDir>$(MSBuildProjectDirectory)\Build\RasenganSpell</PackageDir>
+    <!-- Staging root becomes the zip root -->
+    <PackageRoot>$(MSBuildProjectDirectory)\Build\RasenganSpell</PackageRoot>
     <ZipPath>$(MSBuildProjectDirectory)\Build\RasenganSpell.zip</ZipPath>
   </PropertyGroup>
 
@@ -22,7 +23,7 @@
     <Compile Include="src\**\*.cs" />
   </ItemGroup>
 
-  <!-- Explicit references (match your libs\ listing) -->
+  <!-- References -->
   <ItemGroup>
     <Reference Include="BepInEx"><HintPath>libs\BepInEx.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="BepInEx.Harmony"><HintPath>libs\BepInEx.Harmony.dll</HintPath><Private>false</Private></Reference>
@@ -44,72 +45,76 @@
     <Reference Include="UnityEngine.InputLegacyModule"><HintPath>libs\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 
-  <!-- Candidates: where we might find your bundle and sprites (source locations) -->
+  <!-- Source asset locations -->
   <ItemGroup>
-    <!-- Bundle (try both with and without .bundle in several folders) -->
+    <!-- Bundle (prefer a few common spots) -->
+    <BundleSrc Include="Assets\rasengan.bundle" Condition="Exists('Assets\rasengan.bundle')" />
     <BundleSrc Include="Assets\Sprites\rasengan.bundle" Condition="Exists('Assets\Sprites\rasengan.bundle')" />
-    <BundleSrc Include="Assets\Sprites\rasengan" Condition="Exists('Assets\Sprites\rasengan')" />
-    <BundleSrc Include="AssetBundles\Windows\rasengan.bundle" Condition="Exists('AssetBundles\Windows\rasengan.bundle')" />
-    <BundleSrc Include="AssetBundles\Windows\rasengan" Condition="Exists('AssetBundles\Windows\rasengan')" />
-    <BundleSrc Include="AssetBundles\rasengan.bundle" Condition="Exists('AssetBundles\rasengan.bundle')" />
-    <BundleSrc Include="AssetBundles\rasengan" Condition="Exists('AssetBundles\rasengan')" />
     <BundleSrc Include="rasengan.bundle" Condition="Exists('rasengan.bundle')" />
-    <BundleSrc Include="rasengan" Condition="Exists('rasengan')" />
 
-    <!-- Sprites (common dev locations) -->
-    <SpriteMainSrc Include="Assets\Sprites\Rasengan_Main.png" Condition="Exists('Assets\Sprites\Rasengan_Main.png')" />
-    <SpriteUiSrc Include="Assets\Sprites\Rasengan_Ui.png" Condition="Exists('Assets\Sprites\Rasengan_Ui.png')" />
-    <SpriteMainSrc Include="Sprites\Rasengan_Main.png" Condition="Exists('Sprites\Rasengan_Main.png')" />
-    <SpriteUiSrc Include="Sprites\Rasengan_Ui.png" Condition="Exists('Sprites\Rasengan_Ui.png')" />
+    <!-- Sprites (we'll also allow wildcard) -->
+    <SpritePngSrc Include="Assets\Sprites\*.png" Condition="Exists('Assets\Sprites')" />
   </ItemGroup>
 
-  <!-- (Optional) also copy to bin\ on build if you like -->
+  <!-- Optionally copy to bin on build if you want -->
   <ItemGroup>
     <None Include="@(BundleSrc)"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
-    <None Include="@(SpriteMainSrc)"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
-    <None Include="@(SpriteUiSrc)"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
+    <None Include="@(SpritePngSrc)"><CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory></None>
   </ItemGroup>
 
-  <!-- Package to Build\RasenganSpell\ -->
+  <!-- Package to Build\RasenganSpell\ (BepInEx layout) -->
   <Target Name="PackageMod" AfterTargets="Build">
-    <Message Text="Packaging RasenganSpell → $(PackageDir)" Importance="high" />
-    <MakeDir Directories="$(PackageDir)" />
-    <MakeDir Directories="$(PackageDir)\Sprites" />
+    <PropertyGroup>
+      <!-- Destinations inside the zip root -->
+      <PluginDest>$(PackageRoot)\BepInEx\plugins\RasenganSpell</PluginDest>
+      <AssetsDest>$(PluginDest)\Assets</AssetsDest>
+      <SpritesDest>$(PluginDest)\Sprites</SpritesDest>
+
+      <!-- Root Thunderstore files (from Assets) -->
+      <AssetsRoot>$(MSBuildProjectDirectory)\Assets</AssetsRoot>
+    </PropertyGroup>
+
+    <Message Text="Packaging RasenganSpell → $(PackageRoot)" Importance="high" />
+
+    <!-- Clean / create -->
+    <RemoveDir Directories="$(PackageRoot)" />
+    <MakeDir Directories="$(PackageRoot)" />
+    <MakeDir Directories="$(PluginDest)" />
+    <MakeDir Directories="$(AssetsDest)" />
+    <MakeDir Directories="$(SpritesDest)" />
+
+    <!-- 0) Root Thunderstore files -->
+    <Copy SourceFiles="$(AssetsRoot)\manifest.json" DestinationFiles="$(PackageRoot)\manifest.json" Condition="Exists('$(AssetsRoot)\manifest.json')" />
+    <Copy SourceFiles="$(AssetsRoot)\icon.png" DestinationFiles="$(PackageRoot)\icon.png" Condition="Exists('$(AssetsRoot)\icon.png')" />
+    <Copy SourceFiles="$(AssetsRoot)\README.md" DestinationFiles="$(PackageRoot)\README.md" Condition="Exists('$(AssetsRoot)\README.md')" />
 
     <!-- 1) DLL -->
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PackageDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDest)" />
 
-    <!-- 2) Bundle: prefer bin\… then fall back to source paths -->
+    <!-- 2) Bundle: prefer bin\ then fall back to source paths; place into Assets\ -->
     <ItemGroup>
       <BundleBin Include="$(OutDir)rasengan.bundle" Condition="Exists('$(OutDir)rasengan.bundle')" />
       <BundleBin Include="$(OutDir)rasengan" Condition="Exists('$(OutDir)rasengan')" />
     </ItemGroup>
+    <Message Text="Bundle (bin): @(BundleBin)" Importance="low" />
+    <Message Text="Bundle (src): @(BundleSrc)" Importance="low" />
+    <Copy SourceFiles="@(BundleBin)" DestinationFolder="$(AssetsDest)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(BundleSrc)" DestinationFolder="$(AssetsDest)" SkipUnchangedFiles="true" Condition="'@(BundleBin)' == ''" />
 
-    <Message Text="Bundle from bin: @(BundleBin)" Importance="low" />
-    <Message Text="Bundle from src: @(BundleSrc)" Importance="low" />
-
-    <Copy SourceFiles="@(BundleBin)" DestinationFolder="$(PackageDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(BundleSrc)" DestinationFolder="$(PackageDir)" SkipUnchangedFiles="true" Condition="'@(BundleBin)' == ''" />
-
-    <!-- 3) Sprites: prefer bin\… then fall back to source paths -->
+    <!-- 3) Sprites: prefer bin\ then fall back to Assets\Sprites; place into Sprites\ -->
     <ItemGroup>
-      <SpriteMainBin Include="$(OutDir)Rasengan_Main.png" Condition="Exists('$(OutDir)Rasengan_Main.png')" />
-      <SpriteUiBin Include="$(OutDir)Rasengan_Ui.png" Condition="Exists('$(OutDir)Rasengan_Ui.png')" />
+      <SpritePngBin Include="$(OutDir)*.png" Condition="Exists('$(OutDir)')" />
     </ItemGroup>
-
-    <Message Text="SpriteMain bin: @(SpriteMainBin) | src: @(SpriteMainSrc)" Importance="low" />
-    <Message Text="SpriteUi   bin: @(SpriteUiBin)   | src: @(SpriteUiSrc)" Importance="low" />
-
-    <Copy SourceFiles="@(SpriteMainBin)" DestinationFolder="$(PackageDir)\Sprites" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(SpriteMainSrc)" DestinationFolder="$(PackageDir)\Sprites" SkipUnchangedFiles="true" Condition="'@(SpriteMainBin)' == ''" />
-
-    <Copy SourceFiles="@(SpriteUiBin)" DestinationFolder="$(PackageDir)\Sprites" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(SpriteUiSrc)" DestinationFolder="$(PackageDir)\Sprites" SkipUnchangedFiles="true" Condition="'@(SpriteUiBin)' == ''" />
+    <Message Text="Sprites (bin): @(SpritePngBin)" Importance="low" />
+    <Message Text="Sprites (src): @(SpritePngSrc)" Importance="low" />
+    <Copy SourceFiles="@(SpritePngBin)" DestinationFolder="$(SpritesDest)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(SpritePngSrc)" DestinationFolder="$(SpritesDest)" SkipUnchangedFiles="true" Condition="'@(SpritePngBin)' == ''" />
   </Target>
 
-  <!-- Zip for convenience -->
+  <!-- Zip the whole package root -->
   <Target Name="ZipMod" AfterTargets="PackageMod" Condition="'$(OS)' == 'Windows_NT'">
     <Message Text="Zipping → $(ZipPath)" Importance="high" />
-    <Exec Command="powershell -NoProfile -Command &quot;Compress-Archive -Path '$(PackageDir)\*' -DestinationPath '$(ZipPath)' -Force&quot;" />
+    <Delete Files="$(ZipPath)" />
+    <Exec Command="powershell -NoProfile -Command &quot;Compress-Archive -Path '$(PackageRoot)\*' -DestinationPath '$(ZipPath)' -Force&quot;" />
   </Target>
 </Project>

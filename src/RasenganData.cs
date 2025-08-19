@@ -1,25 +1,32 @@
-﻿using UnityEngine;
+#nullable enable
+using UnityEngine;
 using BlackMagicAPI.Modules.Spells;
+using System.IO;
 
 namespace RasenganSpell
 {
-    /// <summary>
-    /// MUST inherit SpellData or BlackMagic will reject the registration.
-    /// </summary>
     public class RasenganData : SpellData
     {
-        [Header("Page Visuals (optional)")]
-        public string PageTitle = "Rasengan";
-        public string VoiceKeyword = "rasengan";
-        public string PageSpriteName = "Rasengan_Main.png";
-
-        [Header("VFX (optional)")]
-        public string BundleName = "rasengan";           // file: rasengan.bundle
-        public string OrbPrefabName = "RasenganOrbVFX";  // prefab name inside the bundle
-
-        // --- SpellData abstract members (required by BlackMagicAPI 2.4.0) ---
-        public override string Name      => PageTitle;
+        public override string Name => "Rasengan";
         public override float  Cooldown  => 3f;
         public override Color  GlowColor => new Color(0.2f, 0.6f, 1f, 1f);
+        public override string[] SubNames => new[] { "rasengan", "ramen", "rasen", "gan", "gone" };
+
+        // Log which textures BlackMagic will try to load; actual loading is done by the base class.
+        public override Texture2D? GetMainTexture()
+        {
+            var dir  = RasenganPlugin.PluginDir ?? "";
+            var path = Path.Combine(dir, "Sprites", Name.Replace(" ", "") + "_Main.png");
+            RasenganPlugin.Log?.LogInfo($"[Rasengan] Page Main: {path} exists={File.Exists(path)}");
+            return base.GetMainTexture();
+        }
+
+        public override Texture2D? GetEmissionTexture()
+        {
+            var dir  = RasenganPlugin.PluginDir ?? "";
+            var path = Path.Combine(dir, "Sprites", Name.Replace(" ", "") + "_Emission.png");
+            RasenganPlugin.Log?.LogInfo($"[Rasengan] Page Emission: {path} exists={File.Exists(path)}");
+            return base.GetEmissionTexture();
+        }
     }
 }
