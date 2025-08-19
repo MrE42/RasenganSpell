@@ -39,27 +39,37 @@ namespace RasenganSpell
 
             RasenganFXController.AttachAndAutoSetup(orbVfx);
 
-            // Collect page colliders so the orb ignores them.
-            var pageCols = page.GetComponentsInChildren<Collider>(includeInactive: true);
+            // Collect colliders so the orb ignores them
+            var pageCols  = page.GetComponentsInChildren<Collider>(includeInactive: true);
+            var ownerRoot = (player != null) ? player.transform.root : page.transform.root;
+            var ownerCols = ownerRoot ? ownerRoot.GetComponentsInChildren<Collider>(includeInactive: true) : new Collider[0];
+
             RasenganPlugin.Log?.LogDebug($"[Rasengan] Page collider count={pageCols.Length}");
 
             // Attach collision script
             var collision = orbVfx.GetComponent<RasenganCollision>();
             if (!collision) collision = orbVfx.AddComponent<RasenganCollision>();
 
-            collision.triggerRadius    = 0.6f;
-            collision.baseDamage       = 24f;
-            collision.damagePerLevel   = 6f;
-            collision.lifeSeconds      = 6f;
-            collision.knockbackForce   = 12f;
-            collision.knockbackUpward  = 0.25f;
+            // Tunables
+            float sphereRadius     = 0.6f;
+            float lifeSeconds      = 6f;
+            collision.baseDamage   = 24f;
+            collision.damagePerLevel = 6f;
+            collision.knockbackForce  = 12f;
+            collision.knockbackUpward = 0.25f;
 
-            Transform ownerRoot = (player != null) ? player.transform.root : page.transform.root;
-            collision.Init(ownerRoot, castingLevel, pageCols);
+            // IMPORTANT: keep using castingLevel
+            collision.castingLevel = castingLevel;
+
+            // Init ignore sets + radius
+            collision.Init(ownerRoot, castingLevel, pageCols, sphereRadius);
 
             // Place the orb just in front of the page
             orbVfx.transform.localPosition = new Vector3(0f, 0f, 0.05f);
             orbVfx.transform.localRotation = Quaternion.identity;
+
+            // Self-despawn after a short time in case it doesn't hit anything
+            Object.Destroy(orbVfx, lifeSeconds);
 
             RasenganPlugin.Log?.LogDebug($"[Rasengan] Orb ready. owner='{ownerRoot?.name ?? "null"}', level={castingLevel}");
         }

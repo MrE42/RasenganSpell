@@ -1,282 +1,309 @@
-﻿using System.Linq;
-using System.Text;
+using System;
+using System.Linq;
+using System.Reflection;
 using UnityEngine;
+using BlackMagicAPI.Modules.Spells; // PageController
 
 namespace RasenganSpell
 {
-    /// <summary>
-    /// One-and-done Rasengan collision with robust debugging and ignores.
-    /// - Ensures trigger SphereCollider + kinematic Rigidbody.
-    /// - Ignores the caster and the page.
-    /// - On hit, tries hard to resolve the other Player (not self) and apply damage+knockback.
-    /// - Emits very detailed logs to diagnose false "non-player" hits.
-    /// </summary>
     [RequireComponent(typeof(SphereCollider))]
     [RequireComponent(typeof(Rigidbody))]
     public sealed class RasenganCollision : MonoBehaviour
     {
         [Header("Damage")]
-        [Tooltip("Base damage at castingLevel = 1.")]
         public float baseDamage = 24f;
-
-        [Tooltip("Extra damage per casting level above 1.")]
         public float damagePerLevel = 6f;
-
-        [Tooltip("Casting level supplied by RasenganLogic.")]
-        public int castingLevel = 1;
+        public int   castingLevel = 1;
 
         [Header("Collision")]
-        [Tooltip("Trigger radius for detecting targets.")]
         public float triggerRadius = 0.6f;
-
-        [Tooltip("Lifetime fail-safe; orb despawns after this many seconds if it never hits.")]
-        public float lifeSeconds = 6f;
+        public float lifeSeconds   = 6f;
 
         [Header("Knockback")]
-        [Tooltip("Impulse force applied to the hit target.")]
-        public float knockbackForce = 12f;
-
-        [Tooltip("Upward bias added to knockback direction (helps pop targets slightly).")]
+        public float knockbackForce  = 12f;
         public float knockbackUpward = 0.25f;
 
-        // Provided by RasenganLogic
+        // Set by RasenganLogic.Init(...)
         private Transform _ownerRoot;
-        private Collider[] _ownerColliders = System.Array.Empty<Collider>();
-        private Collider[] _pageColliders  = System.Array.Empty<Collider>();
+        private Collider[] _ownerCols = Array.Empty<Collider>();
+        private Collider[] _pageCols  = Array.Empty<Collider>();
 
         private SphereCollider _myCol;
         private bool _consumed;
 
-        // Optional tag/layer heuristics to recognize players in case PlayerMovement
-        // isn't directly on the collider we hit.
-        private static readonly string[] PlayerTags   = { "Player", "player" };
-        private static readonly string[] PlayerLayers = { "Player", "Players" };
-
-        /// <summary>Initialize with owner transform, casting level and extra ignores (page colliders).</summary>
-        public void Init(Transform ownerRoot, int level, Collider[] pageColliders)
+        /// <summary>Called by RasenganLogic right after instantiation.</summary>
+        public void Init(Transform ownerRoot, int level, Collider[] pageColliders, float radius)
         {
-            _ownerRoot     = ownerRoot;
-            castingLevel   = Mathf.Max(1, level);
-            _pageColliders = pageColliders ?? System.Array.Empty<Collider>();
+            _ownerRoot   = ownerRoot;
+            castingLevel = Mathf.Max(1, level);
+            _pageCols    = pageColliders ?? Array.Empty<Collider>();
+            triggerRadius = radius > 0f ? radius : triggerRadius;
         }
 
         private void Awake()
         {
             _myCol = GetComponent<SphereCollider>();
             _myCol.isTrigger = true;
-            if (triggerRadius > 0f) _myCol.radius = triggerRadius;
+            _myCol.radius = triggerRadius;
 
             var rb = GetComponent<Rigidbody>();
             rb.isKinematic = true;
-            rb.useGravity  = false;
+            rb.useGravity = false;
 
-            // Safety self-destruct
             if (lifeSeconds > 0f) Destroy(gameObject, lifeSeconds);
         }
 
         private void Start()
         {
-            // Gather owner colliders to ignore (avoid self-hit)
-            if (_ownerRoot != null)
-                _ownerColliders = _ownerRoot.GetComponentsInChildren<Collider>(includeInactive: true);
-            else
-                _ownerColliders = System.Array.Empty<Collider>();
+            // Collect owner colliders to ignore self-hits
+            _ownerCols = _ownerRoot
+                ? _ownerRoot.GetComponentsInChildren<Collider>(includeInactive: true)
+                : Array.Empty<Collider>();
 
-            IgnoreSet(_ownerColliders, "owner");
-            IgnoreSet(_pageColliders,  "page");
+            IgnoreSet(_ownerCols, "owner");
+            IgnoreSet(_pageCols,  "page");
 
-            // Try to sit on a harmless layer
-            int layer = LayerMask.NameToLayer("IgnoreRaycast");
-            if (layer >= 0) gameObject.layer = layer;
-
-            RasenganPlugin.Log?.LogDebug($"[RasenganCollision] Init done. ownerRoot={_ownerRoot?.name ?? "null"}, " +
-                                         $"ownerCols={_ownerColliders.Length}, pageCols={_pageColliders.Length}, myLayer={gameObject.layer}");
+            RasenganPlugin.Log?.LogInfo(
+                $"[RasenganCollision] Ready. ownerRoot={_ownerRoot?.name ?? "null"}, " +
+                $"ownerCols={_ownerCols.Length}, pageCols={_pageCols.Length}, layer={gameObject.layer}");
         }
 
-        private void IgnoreSet(Collider[] cols, string setName)
+        private void IgnoreSet(Collider[] cols, string label)
         {
             if (cols == null || cols.Length == 0) return;
-
-            foreach (var c in cols)
+            int c = 0;
+            foreach (var col in cols)
             {
-                if (!c || c == _myCol) continue;
-                Physics.IgnoreCollision(_myCol, c, true);
+                if (!col || col == _myCol) continue;
+                Physics.IgnoreCollision(_myCol, col, true);
+                c++;
             }
-
-            RasenganPlugin.Log?.LogDebug($"[RasenganCollision] Ignoring {cols.Length} colliders from {setName} set.");
+            RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Ignoring {c}/{cols.Length} colliders from {label} set.");
         }
 
         private void OnTriggerEnter(Collider other)
         {
-            if (_consumed || other == null) return;
+            if (_consumed || !other) return;
 
-            // Dump a very detailed record for this contact
-            DebugDumpContact("ENTER", other);
-
-            Transform otherRoot = other.attachedRigidbody
-                ? other.attachedRigidbody.transform.root
-                : other.transform.root;
-
-            // 1) Ignore ourselves (owner)
-            if (_ownerRoot != null && otherRoot == _ownerRoot)
+            // Skip owner & our own page hierarchies completely
+            var root = GetRoot(other);
+            if (_ownerRoot && root == _ownerRoot)
             {
-                RasenganPlugin.Log?.LogDebug("[RasenganCollision] Ignored collision with caster (ownerRoot match).");
+                Physics.IgnoreCollision(_myCol, other, true);
+                return;
+            }
+            if (IsOrHasPage(other))
+            {
                 Physics.IgnoreCollision(_myCol, other, true);
                 return;
             }
 
-            // 2) Ignore touching any PageController hierarchy
-            var pageOnOther = other.GetComponentInParent<PageController>();
-            if (pageOnOther != null)
-            {
-                RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Touch PageController '{pageOnOther.name}' -> ignoring.");
-                Physics.IgnoreCollision(_myCol, other, true);
-                return;
-            }
-
-            // 3) Try to get PlayerMovement directly
+            // 1) PLAYER: PlayerMovement present?
             var pm = other.GetComponentInParent<PlayerMovement>();
-
-            // 3b) If not found, use tag/layer/name heuristics to locate a plausible player root,
-            // then hunt for PlayerMovement beneath it.
-            if (pm == null)
-            {
-                bool tagLooksPlayer   = PlayerTags.Contains(other.tag) || PlayerTags.Contains(otherRoot.tag);
-                bool layerLooksPlayer = PlayerLayers.Contains(LayerMask.LayerToName(other.gameObject.layer)) ||
-                                        PlayerLayers.Contains(LayerMask.LayerToName(otherRoot.gameObject.layer));
-                bool nameLooksPlayer  = otherRoot.name.Contains("Player");
-
-                if (tagLooksPlayer || layerLooksPlayer || nameLooksPlayer)
-                {
-                    var candidateRoot = otherRoot;
-                    pm = candidateRoot.GetComponentInChildren<PlayerMovement>(true);
-                    if (pm != null)
-                    {
-                        RasenganPlugin.Log?.LogDebug("[RasenganCollision] Resolved PlayerMovement via heuristics (tag/layer/name).");
-                    }
-                }
-            }
-
-            // 3c) If still not found, try one more time from the collider gameObject instead of root (edge cases)
-            if (pm == null)
-            {
-                pm = other.GetComponent<PlayerMovement>();
-                if (pm != null)
-                    RasenganPlugin.Log?.LogDebug("[RasenganCollision] Resolved PlayerMovement on the collider object directly.");
-            }
-
-            // 4) Player found?
             if (pm != null)
             {
-                // Guard against self
-                if (_ownerRoot != null && pm.transform.root == _ownerRoot)
+                // Do not damage our own caster
+                if (_ownerRoot && pm.transform.root == _ownerRoot)
                 {
-                    RasenganPlugin.Log?.LogDebug("[RasenganCollision] Found PlayerMovement but it is the caster; ignoring.");
                     Physics.IgnoreCollision(_myCol, other, true);
                     return;
                 }
 
-                if (pm.isDead)
+                if (DamagePlayer(pm))
                 {
-                    RasenganPlugin.Log?.LogDebug("[RasenganCollision] Found PlayerMovement but target is dead; ignoring.");
-                    Physics.IgnoreCollision(_myCol, other, true);
-                    return;
-                }
-
-                _consumed = true;
-
-                float dmg = baseDamage + damagePerLevel * (castingLevel - 1);
-                string pname = pm.playername;
-
-                RasenganPlugin.Log?.LogInfo($"[RasenganCollision] *** PLAYER HIT *** target='{pname}' damage={dmg} level={castingLevel}");
-
-                // Damage entry point (host authoritative in MP)
-                pm.NonRpcDamagePlayer(dmg, null, "rasengan");
-
-                // Knockback (best effort)
-                var hitRb = other.attachedRigidbody ?? pm.GetComponent<Rigidbody>() ?? pm.transform.root.GetComponent<Rigidbody>();
-                if (hitRb != null)
-                {
-                    Vector3 dir = (other.bounds.center - transform.position).normalized;
-                    dir += Vector3.up * knockbackUpward;
-                    hitRb.AddForce(dir.normalized * knockbackForce, ForceMode.Impulse);
-                    RasenganPlugin.Log?.LogDebug("[RasenganCollision] Applied knockback to player.");
+                    ApplyKnockback(other);
+                    Consume("player");
                 }
                 else
                 {
-                    RasenganPlugin.Log?.LogDebug("[RasenganCollision] Player root has no Rigidbody, skipping knockback.");
+                    RasenganPlugin.Log?.LogWarning("[RasenganCollision] PlayerMovement found but no usable damage method. Ignoring this collider.");
+                    Physics.IgnoreCollision(_myCol, other, true);
                 }
-
-                Destroy(gameObject);
                 return;
             }
 
-            // 5) Non-player: if it has a rigidbody, give it a shove and despawn
-            var rb2 = other.attachedRigidbody ?? otherRoot.GetComponent<Rigidbody>();
-            if (rb2 != null)
+            // 2) MONSTER/NPC: MonsterHitScript somewhere under the same root?
+            if (DamageMonster(other, root))
             {
-                _consumed = true;
-                Vector3 dir = (other.bounds.center - transform.position).normalized;
-                dir += Vector3.up * knockbackUpward;
-                rb2.AddForce(dir.normalized * knockbackForce, ForceMode.Impulse);
-
-                RasenganPlugin.Log?.LogInfo("[RasenganCollision] Collided with non-player object, applied knockback (despawning).");
-                Destroy(gameObject);
+                ApplyKnockback(other);
+                Consume("monster");
+                return;
             }
-            else
+
+            // 3) Non-target; keep moving and ignore further collisions with this collider
+            RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Non-target contact with '{other.name}'. Ignoring and continuing.");
+            Physics.IgnoreCollision(_myCol, other, true);
+        }
+
+        private static Transform GetRoot(Collider c)
+        {
+            if (!c) return null;
+            return c.attachedRigidbody ? c.attachedRigidbody.transform.root : c.transform.root;
+        }
+
+        private float ComputeDamage() =>
+            baseDamage + damagePerLevel * Mathf.Max(0, castingLevel - 1);
+
+        private bool DamagePlayer(PlayerMovement pm)
+        {
+            try
             {
-                // No player and no rigidbody? Just ignore further collisions with this specific collider
-                Physics.IgnoreCollision(_myCol, other, true);
-                RasenganPlugin.Log?.LogDebug("[RasenganCollision] Non-player & no-Rigidbody; added ignore for this collider.");
+                float dmg = ComputeDamage();
+                var attackerGo = _ownerRoot ? _ownerRoot.gameObject : gameObject;
+                RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Player hit '{pm.playername}' dmg={dmg}");
+
+                var t = pm.GetType();
+
+                // Prefer NonRpcDamagePlayer if available, else DamagePlayer. Try common signatures.
+                var nonRpc = t.GetMethod("NonRpcDamagePlayer",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (nonRpc != null && TryInvokeDamageLike(nonRpc, pm, dmg, attackerGo))
+                    return true;
+
+                var local = t.GetMethod("DamagePlayer",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (local != null && TryInvokeDamageLike(local, pm, dmg, attackerGo))
+                    return true;
+
+                return false;
+            }
+            catch (Exception e)
+            {
+                RasenganPlugin.Log?.LogWarning($"[RasenganCollision] DamagePlayer failed: {e}");
+                return false;
             }
         }
 
         /// <summary>
-        /// Very verbose contact dump to help identify what we're actually touching.
+        /// Calls MonsterHitScript.HitTheMonster(float) on any such component under the same root.
+        /// First tries parents of the collider; if not found, searches the entire root hierarchy.
         /// </summary>
-        private void DebugDumpContact(string phase, Collider col)
+        private bool DamageMonster(Collider other, Transform root)
         {
-            if (RasenganPlugin.Log == null) return;
-
-            var root = col.attachedRigidbody ? col.attachedRigidbody.transform.root : col.transform.root;
-            var sb = new StringBuilder();
-
-            sb.AppendLine($"[RasenganCollision] {phase} with collider='{col.name}' " +
-                          $"(layer={col.gameObject.layer} '{LayerMask.LayerToName(col.gameObject.layer)}', tag='{col.tag}'), " +
-                          $"root='{root.name}' (layer={root.gameObject.layer} '{LayerMask.LayerToName(root.gameObject.layer)}', tag='{root.tag}')");
-
-            // Print immediate parent chain up to 6 levels
-            sb.AppendLine("  Hierarchy (up to 6):");
-            var t = col.transform;
-            int depth = 0;
-            while (t != null && depth < 6)
+            try
             {
-                sb.AppendLine($"    [{depth}] {t.name} (layer {t.gameObject.layer}:{LayerMask.LayerToName(t.gameObject.layer)}, tag '{t.tag}')");
-                t = t.parent;
-                depth++;
+                float dmg = ComputeDamage();
+
+                // --- Try on the collider's parent chain (fast path)
+                var comp = other.GetComponentsInParent<MonoBehaviour>(true)
+                                .FirstOrDefault(mb => mb && mb.GetType().Name == "MonsterHitScript");
+
+                // --- If not found there, search anywhere under the same root
+                if (comp == null && root)
+                {
+                    comp = root.GetComponentsInChildren<MonoBehaviour>(true)
+                               .FirstOrDefault(mb => mb && mb.GetType().Name == "MonsterHitScript");
+                }
+
+                if (comp == null)
+                {
+                    // For troubleshooting, show a small list of components on the root once per contact
+                    var compNames = root ? root.GetComponentsInChildren<MonoBehaviour>(true)
+                                                .Where(x => x).Select(x => x.GetType().Name).Distinct().Take(10)
+                                                .ToArray() : Array.Empty<string>();
+                    RasenganPlugin.Log?.LogInfo($"[RasenganCollision] No MonsterHitScript on '{root?.name ?? other.name}'. Components: {string.Join(", ", compNames)}");
+                    return false;
+                }
+
+                // Look specifically for HitTheMonster(float) or (int)
+                var t = comp.GetType();
+                var floatMethod = t.GetMethod("HitTheMonster",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    binder: null,
+                    types: new[] { typeof(float) },
+                    modifiers: null);
+
+                if (floatMethod != null)
+                {
+                    floatMethod.Invoke(comp, new object[] { dmg });
+                    RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Monster hit '{comp.gameObject.name}' via MonsterHitScript.HitTheMonster(float) dmg={dmg}");
+                    return true;
+                }
+
+                var intMethod = t.GetMethod("HitTheMonster",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    binder: null,
+                    types: new[] { typeof(int) },
+                    modifiers: null);
+
+                if (intMethod != null)
+                {
+                    intMethod.Invoke(comp, new object[] { Mathf.RoundToInt(dmg) });
+                    RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Monster hit '{comp.gameObject.name}' via MonsterHitScript.HitTheMonster(int) dmg={dmg}");
+                    return true;
+                }
+
+                RasenganPlugin.Log?.LogWarning("[RasenganCollision] MonsterHitScript found but no HitTheMonster(float) or (int) method.");
+                return false;
             }
-
-            // Show key components on root (capped)
-            var comps = root.GetComponentsInChildren<Component>(true)
-                            .Take(16)
-                            .Select(c => c != null ? c.GetType().Name : "null").ToArray();
-            sb.Append("  Root has components:");
-            foreach (var c in comps) sb.Append($" {c},");
-            sb.AppendLine();
-
-            // Explicit probes
-            var foundPage   = col.GetComponentInParent<PageController>();
-            var foundPlayer = col.GetComponentInParent<PlayerMovement>();
-            sb.AppendLine($"  Probes: PageController={(foundPage ? "YES" : "no")}, PlayerMovement={(foundPlayer ? "YES" : "no")}");
-            if (foundPage)
-                sb.AppendLine($"    - PageController name: {foundPage.name}");
-            if (foundPlayer)
-                sb.AppendLine($"    - PlayerMovement playername: {foundPlayer.playername}");
-
-            // Owner context
-            sb.AppendLine($"  OwnerRoot: {(_ownerRoot ? _ownerRoot.name : "null")}");
-
-            RasenganPlugin.Log.LogDebug(sb.ToString());
+            catch (Exception e)
+            {
+                RasenganPlugin.Log?.LogWarning($"[RasenganCollision] DamageMonster failed: {e}");
+                return false;
+            }
         }
+
+        /// <summary>
+        /// Tries a few common PlayerMovement damage signatures:
+        /// (float), (float, GameObject), (float, GameObject, string)
+        /// </summary>
+        private bool TryInvokeDamageLike(MethodInfo mi, object target, float dmg, GameObject attacker)
+        {
+            try
+            {
+                var ps = mi.GetParameters();
+                if (ps.Length == 1 && ps[0].ParameterType == typeof(float))
+                {
+                    mi.Invoke(target, new object[] { dmg });
+                    return true;
+                }
+                if (ps.Length == 2 && ps[0].ParameterType == typeof(float) && ps[1].ParameterType == typeof(GameObject))
+                {
+                    mi.Invoke(target, new object[] { dmg, attacker });
+                    return true;
+                }
+                if (ps.Length == 3 &&
+                    ps[0].ParameterType == typeof(float) &&
+                    ps[1].ParameterType == typeof(GameObject) &&
+                    ps[2].ParameterType == typeof(string))
+                {
+                    mi.Invoke(target, new object[] { dmg, attacker, "rasengan" });
+                    return true;
+                }
+            }
+            catch (Exception e)
+            {
+                RasenganPlugin.Log?.LogWarning($"[RasenganCollision] Invoke {mi.DeclaringType.Name}.{mi.Name} failed: {e.Message}");
+            }
+            return false;
+        }
+
+        private void ApplyKnockback(Collider other)
+        {
+            try
+            {
+                var rb = other.attachedRigidbody
+                         ? other.attachedRigidbody
+                         : other.GetComponentInParent<Rigidbody>();
+                if (!rb) return;
+
+                var dir = (other.bounds.center - transform.position).normalized;
+                dir.y += knockbackUpward;
+                rb.AddForce(dir * knockbackForce, ForceMode.Impulse);
+            }
+            catch { /* non-fatal */ }
+        }
+
+        private void Consume(string reason)
+        {
+            if (_consumed) return;
+            _consumed = true;
+            if (_myCol) _myCol.enabled = false;
+            RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Consumed ({reason}).");
+            Destroy(gameObject);
+        }
+
+        private static bool IsOrHasPage(Collider c) =>
+            c && c.GetComponentInParent<PageController>() != null;
     }
 }
