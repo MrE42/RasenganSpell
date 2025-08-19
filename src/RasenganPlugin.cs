@@ -90,67 +90,13 @@ namespace RasenganSpell
                 }
                 catch (Exception e)
                 {
-                    Log.LogWarning($"[Rasengan] F6 page spawn failed ({e.Message}); doing manual cast instead.");
-                    DoManualCast();
+                    Log.LogWarning($"[Rasengan] F6 page spawn failed ({e.Message}).");
+                    
                 }
             }
 
-            // F7: pure manual cast (no page involved)
-            if (Input.GetKeyDown(KeyCode.F7))
-                DoManualCast();
+
         }
 
-
-        /// <summary>
-        /// Manually casts the Rasengan spell by spawning an orb in front of the camera and attaching
-        /// the melee controller.  This is useful when the page hasn't been spawned yet.
-        /// </summary>
-        private void DoManualCast()
-        {
-            try
-            {
-                Log.LogInfo("[Rasengan] Manual cast (F7).");
-
-                // Pick an owner (camera or any active root object).
-                GameObject ownerGo = Camera.main ? Camera.main.gameObject : null;
-                if (ownerGo == null)
-                {
-                    var roots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
-                    foreach (var r in roots)
-                    {
-                        if (r && r.activeInHierarchy)
-                        {
-                            ownerGo = r;
-                            break;
-                        }
-                    }
-                }
-                if (!ownerGo)
-                {
-                    Log.LogWarning("[Rasengan] No owner found for manual cast.");
-                    return;
-                }
-
-                // Lazily create a debug logic host.  We don't register this with BlackMagic.
-                if (_debugLogic == null)
-                {
-                    var host = new GameObject("RasenganDebugLogicHost");
-                    DontDestroyOnLoad(host);
-                    _debugLogic = host.AddComponent<RasenganLogic>();
-                }
-
-                // Determine a forward direction from the owner.  If the forward vector is tiny use world forward.
-                var fwd = ownerGo.transform.forward;
-                if (fwd.sqrMagnitude < 1e-4f) fwd = Vector3.forward;
-                var spawnPos = ownerGo.transform.position + fwd * 0.45f + Vector3.up * 0.05f;
-
-                // Perform the cast directly through the logic object.
-                _debugLogic.CastSpell(ownerGo, page: null, spawnPos, fwd, castingLevel: 1);
-            }
-            catch (Exception e)
-            {
-                Log.LogError($"[Rasengan] Manual cast failed: {e}");
-            }
-        }
     }
 }
