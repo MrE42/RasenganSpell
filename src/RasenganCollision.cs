@@ -18,11 +18,11 @@ namespace RasenganSpell
 
         [Header("Collision")]
         public float triggerRadius = 0.6f;
-        public float lifeSeconds   = 6f;
+        public float lifeSeconds   = 10f;
 
-        [Header("Knockback")]
-        public float knockbackForce  = 12f;
-        public float knockbackUpward = 0.25f;
+        [Header("Player Knockback (via PlayerMovement)")]
+        public float knockbackLevelDistPerLevel = 0.40f; // extra meters per level
+        public float knockbackLevelDistMax      = 3.0f;  // cap so it doesn't get silly
 
         // Set by RasenganLogic.Init(...)
         private Transform _ownerRoot;
@@ -33,19 +33,20 @@ namespace RasenganSpell
         private bool _consumed;
 
         /// <summary>Called by RasenganLogic right after instantiation.</summary>
-        public void Init(Transform ownerRoot, int level, Collider[] pageColliders, float radius)
+        public void Init(Transform ownerRoot, int level, Collider[] pageColliders, float radius, float life)
         {
             _ownerRoot    = ownerRoot;
             castingLevel  = Mathf.Max(1, level);
             _pageCols     = pageColliders ?? Array.Empty<Collider>();
             triggerRadius = radius > 0f ? radius : triggerRadius;
+            lifeSeconds = life;
         }
 
         private void Awake()
         {
             _myCol = GetComponent<SphereCollider>();
             _myCol.isTrigger = true;
-            _myCol.radius = triggerRadius;
+            _myCol.radius = triggerRadius * 2;
 
             var rb = GetComponent<Rigidbody>();
             rb.isKinematic = true;
@@ -112,8 +113,9 @@ namespace RasenganSpell
 
                 if (DamagePlayer(pm))
                 {
-                    ApplyKnockback(other);
+                    ApplyPlayerKnockbackViaPM(pm, castingLevel);
                     Consume("player");
+                    return;
                 }
                 else
                 {
@@ -126,7 +128,7 @@ namespace RasenganSpell
             // 2) MONSTER/NPC: anything under the root with HitTheMonster(float|int)?
             if (DamageMonster(other))
             {
-                ApplyKnockback(other);
+                //ApplyKnockback(other);
                 Consume("monster");
                 return;
             }
@@ -209,20 +211,28 @@ namespace RasenganSpell
             }
         }
 
-        private void ApplyKnockback(Collider other)
+        private void ApplyPlayerKnockbackViaPM(PlayerMovement pm, int level)
         {
             try
             {
-                var rb = other.attachedRigidbody
-                         ? other.attachedRigidbody
-                         : other.GetComponentInParent<Rigidbody>();
-                if (!rb) return;
+                // Direction from player -> rasengan
+                Vector3 dirPlayerToRasengan = (transform.position - pm.transform.position).normalized;
 
-                var dir = (other.bounds.center - transform.position).normalized;
-                dir.y += knockbackUpward;
-                rb.AddForce(dir * knockbackForce, ForceMode.Impulse);
+                // Level-based extra distance to push the hit point beyond the Rasengan
+                float extraDist = Mathf.Clamp(level * knockbackLevelDistPerLevel, 0f, knockbackLevelDistMax);
+
+                // Put the proxy a bit PAST the Rasengan along that direction
+                Vector3 hit = dirPlayerToRasengan * extraDist;
+
+                pm.velocity = 12 * hit;
+                
+                //pm.ApplyKnockback(proxy);
+                
             }
-            catch { /* non-fatal */ }
+            catch (Exception e)
+            {
+                RasenganPlugin.Log?.LogWarning($"[RasenganCollision] ApplyPlayerKnockbackViaPM failed: {e}");
+            }
         }
 
         private void Consume(string reason)

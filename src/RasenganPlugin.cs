@@ -1,10 +1,12 @@
 using System;
 using System.IO;
+using System.Runtime.CompilerServices;
 using BepInEx;
 using BepInEx.Logging;
 using UnityEngine;
 using BlackMagicAPI.Managers;
 using UnityEngine.Rendering;
+using HarmonyLib;
 
 namespace RasenganSpell
 {
@@ -17,7 +19,7 @@ namespace RasenganSpell
     [BepInProcess("MageArena")]
     [BepInDependency("com.d1gq.black.magic.api", BepInDependency.DependencyFlags.HardDependency)]
     [BepInDependency("com.magearena.modsync", BepInDependency.DependencyFlags.HardDependency)]
-    [BepInPlugin(PluginGuid, "Rasengan Spell", "1.0.0")]
+    [BepInPlugin(PluginGuid, "RasenganSpell", "1.0.0")]
     public class RasenganPlugin : BaseUnityPlugin
     {
         /// <summary>Unique identifier for this plugin.</summary>
@@ -29,16 +31,31 @@ namespace RasenganSpell
         /// <summary>Absolute path to the folder containing this plugin DLL.</summary>
         public static string PluginDir { get; private set; }
 
-        // We keep a debug logic component around for manual casting outside of a page.
-        private RasenganLogic _debugLogic;
-        
         public static string modsync = "all";
+
+        private static bool debug = true;
+        
+        // 2.a) Global event everyone can listen to
+        public static event Action AnyActiveSlotChanged;
+        
+        internal static Harmony harmony;
+
+        public static void RaiseAnyActiveSlotChanged([CallerMemberName] string src = null)
+        {
+            Log?.LogInfo($"[Rasengan/Harmony] AnyActiveSlotChanged raised by: {src}");
+            AnyActiveSlotChanged?.Invoke();
+        }
+
 
         private void Awake()
         {
             Log = Logger;
             PluginDir = Path.GetDirectoryName(Info.Location) ?? Directory.GetCurrentDirectory();
             Log.LogInfo($"[Rasengan] PluginDir = {PluginDir}");
+            
+            harmony = new Harmony(PluginGuid);
+            RasenganSlotHooks.TryInstall(harmony);
+
 
             // Register: (plugin, logicType, dataType)
             try
@@ -65,7 +82,7 @@ namespace RasenganSpell
         private void Update()
         {
             // F6: ask BlackMagic to spawn a Rasengan PAGE at the player's camera
-            if (Input.GetKeyDown(KeyCode.F6))
+            if (Input.GetKeyDown(KeyCode.F6) && debug)
             {
                 try
                 {

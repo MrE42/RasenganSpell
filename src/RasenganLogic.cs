@@ -1,80 +1,175 @@
+using System;
 using System.IO;
 using UnityEngine;
-using BlackMagicAPI.Modules.Spells; // SpellLogic, PageController
+using BlackMagicAPI.Modules.Spells;
+using Object = UnityEngine.Object;
 
 namespace RasenganSpell
 {
-    /// <summary>
-    /// Rasengan spell: hide the page mesh, spawn an orb at/just in front of the page,
-    /// attach one-shot collision that scales damage by casting level and applies knockback.
-    /// </summary>
     public class RasenganLogic : SpellLogic
     {
-        public override void CastSpell(GameObject player, PageController page, Vector3 spawnPos, Vector3 dir, int castingLevel)
+        // Reference to the currently spawned orb (set it when you spawn it)
+        [SerializeField] private GameObject _activeOrb;
+        public override void CastSpell(GameObject player, PageController page, Vector3 spawnPos, Vector3 dir,
+            int castingLevel)
         {
             RasenganPlugin.Log?.LogInfo("[Rasengan] CastSpell invoked.");
-
             if (page == null)
             {
                 RasenganPlugin.Log?.LogWarning("[Rasengan] CastSpell: page was null.");
                 return;
             }
 
-            // Hide the page visuals
-            if (page.gameObject.TryGetComponent<Renderer>(out var pageRenderer)) pageRenderer.enabled = false;
-            foreach (var childR in page.GetComponentsInChildren<Renderer>(true)) childR.enabled = false;
+            // --- Hide the page via a visibility latch (supports overlapping casts) ---
+            var latch = PageVisibilityLatch.GetOrAdd(page.gameObject);
+            latch.Acquire(); // hides the page (increments lock)
 
             // Spawn the orb from the AssetBundle (preferred), else primitive fallback
-            GameObject orbVfx = TrySpawnFromBundle("rasengan", "RasenganOrbVFX", page.transform, Vector3.zero);
-            if (!orbVfx)
+            _activeOrb = TrySpawnFromBundle("rasengan", "RasenganOrbVFX", page.transform, Vector3.zero);
+            
+            if (!_activeOrb)
             {
-                RasenganPlugin.Log?.LogWarning("[Rasengan] Bundle failed or prefab missing, using primitive sphere as fallback.");
-                orbVfx = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                orbVfx.transform.SetParent(page.transform, false);
-                orbVfx.transform.localScale = Vector3.one * 0.2f;
+                // If we couldn't spawn, release immediately so the page isn't stuck hidden
+                latch.Release();
+                return;
+            }
+            _activeOrb = _activeOrb;
+            _activeOrb.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+            RasenganFXController.AttachAndAutoSetup(_activeOrb);
 
-                var primitiveCol = orbVfx.GetComponent<Collider>();
-                if (primitiveCol) Object.Destroy(primitiveCol);
+            // Audio: loop the tail from whatever clip you already set on the orb AudioSource
+            var audio = _activeOrb.GetComponent<AudioSource>();
+            if (audio)
+            {
+                audio.playOnAwake = false;
+                audio.loop = true; // we’ll schedule a tail loop below
+                audio.spatialBlend = 1f;
+                audio.rolloffMode = AudioRolloffMode.Linear;
+                audio.minDistance = 4f;
+                audio.maxDistance = 22f;
+                audio.dopplerLevel = 0f;
+                audio.volume *= (float) 0.75;
+
             }
 
-            RasenganFXController.AttachAndAutoSetup(orbVfx);
-
             // Collect colliders so the orb ignores them
-            var pageCols  = page.GetComponentsInChildren<Collider>(includeInactive: true);
+            var pageCols = page.GetComponentsInChildren<Collider>(includeInactive: true);
             var ownerRoot = (player != null) ? player.transform.root : page.transform.root;
-            var ownerCols = ownerRoot ? ownerRoot.GetComponentsInChildren<Collider>(includeInactive: true) : new Collider[0];
 
             RasenganPlugin.Log?.LogDebug($"[Rasengan] Page collider count={pageCols.Length}");
 
             // Attach collision script
-            var collision = orbVfx.GetComponent<RasenganCollision>();
-            if (!collision) collision = orbVfx.AddComponent<RasenganCollision>();
+            var collision = _activeOrb.GetComponent<RasenganCollision>();
+            if (!collision) collision = _activeOrb.AddComponent<RasenganCollision>();
 
             // Tunables
-            float sphereRadius     = 0.6f;
-            float lifeSeconds      = 6f;
-            collision.baseDamage   = 24f;
+            float sphereRadius = 0.6f;
+            float lifeSeconds = 10f;
+            collision.baseDamage = 24f;
             collision.damagePerLevel = 6f;
-            collision.knockbackForce  = 12f;
-            collision.knockbackUpward = 0.25f;
-
-            // IMPORTANT: keep using castingLevel
+            collision.knockbackLevelDistPerLevel = 0.40f;
+            collision.knockbackLevelDistMax      = 3.0f;
             collision.castingLevel = castingLevel;
 
             // Init ignore sets + radius
-            collision.Init(ownerRoot, castingLevel, pageCols, sphereRadius);
+            collision.Init(ownerRoot, castingLevel, pageCols, sphereRadius, lifeSeconds);
 
             // Place the orb just in front of the page
-            orbVfx.transform.localPosition = new Vector3(0f, 0f, 0.05f);
-            orbVfx.transform.localRotation = Quaternion.identity;
+            _activeOrb.transform.localPosition = new Vector3(0f, 0f, 0.3f);
+            _activeOrb.transform.localRotation = Quaternion.identity;
 
-            // Self-despawn after a short time in case it doesn't hit anything
-            Object.Destroy(orbVfx, lifeSeconds);
+            // Make it extend while LMB is held
+            var extend = _activeOrb.AddComponent<RasenganHoldExtend>();
+            extend.Init(
+                anchor: page.transform,
+                homePos: _activeOrb.transform.localPosition,
+                homeRot: _activeOrb.transform.localRotation,
+                // tweak these to taste; local -X is "left"
+                extendedOffset: new Vector3(.05f, .55f, -0.3f), // left, down, forward
+                extendedTiltEuler: new Vector3(-6f, 0f, -10f), // small aggressive tilt
+                moveLambda: 10f, // higher = snappier
+                rotateLambda: 10f
+            );
 
-            RasenganPlugin.Log?.LogDebug($"[Rasengan] Orb ready. owner='{ownerRoot?.name ?? "null"}', level={castingLevel}");
+            // Ensure the page becomes visible again when this orb goes away
+            var releaser = _activeOrb.AddComponent<ReleaseOnDestroy>();
+            releaser.Init(latch);
+
+            // Auto-despawn fallback
+            Object.Destroy(_activeOrb, lifeSeconds);
+
+            RasenganPlugin.Log?.LogDebug(
+                $"[Rasengan] Orb ready. owner='{ownerRoot?.name ?? "null"}', level={castingLevel}");
         }
 
-        private static GameObject TrySpawnFromBundle(string bundleBaseName, string prefabName, Transform parent, Vector3 localPos)
+        // ------- existing methods kept as-is (TrySpawnFromBundle, TailLoopFromExistingSource, CopyAudioSourceSettings, AutoStopWhenDestroyed) -------
+
+        // ----- New helper: tracks page visibility with a lock counter -----
+        class PageVisibilityLatch : MonoBehaviour
+        {
+            Renderer[] _renderers;
+            int _locks;
+
+            void Awake()
+            {
+                // Cache only the CURRENT page visuals; orb will be spawned after Acquire()
+                _renderers = GetComponentsInChildren<Renderer>(includeInactive: true);
+            }
+
+            public static PageVisibilityLatch GetOrAdd(GameObject pageGo)
+            {
+                var latch = pageGo.GetComponent<PageVisibilityLatch>();
+                if (!latch) latch = pageGo.AddComponent<PageVisibilityLatch>();
+                return latch;
+            }
+
+            public void Acquire()
+            {
+                if (_locks == 0) SetVisible(false);
+                _locks++;
+            }
+
+            public void Release()
+            {
+                _locks = Mathf.Max(0, _locks - 1);
+                if (_locks == 0) SetVisible(true);
+            }
+
+            void SetVisible(bool visible)
+            {
+                if (_renderers == null || _renderers.Length == 0)
+                    _renderers = GetComponentsInChildren<Renderer>(true);
+
+                foreach (var r in _renderers)
+                    if (r)
+                        r.enabled = visible;
+            }
+        }
+
+        // ----- New helper: releases the latch when the orb is destroyed -----
+        class ReleaseOnDestroy : MonoBehaviour
+        {
+            PageVisibilityLatch _latch;
+
+            public void Init(PageVisibilityLatch latch)
+            {
+                _latch = latch;
+            }
+
+            void OnDestroy()
+            {
+                if (_latch) _latch.Release();
+            }
+
+            void OnDisable()
+            {
+                if (_latch && !gameObject.scene.isLoaded) _latch.Release();
+            } // safety for scene unloads
+        }
+
+
+        private static GameObject TrySpawnFromBundle(string bundleBaseName, string prefabName, Transform parent,
+            Vector3 localPos)
         {
             try
             {
@@ -83,17 +178,18 @@ namespace RasenganSpell
                 var pAssets = Path.Combine(pluginRoot, "Assets", $"{bundleBaseName}.bundle");
                 var pSameDir1 = Path.Combine(pluginRoot, $"{bundleBaseName}.bundle");
                 var pSameDir2 = Path.Combine(pluginRoot, $"{bundleBaseName}");
-                var pNested   = Path.Combine(pluginRoot, "RasenganSpell", $"{bundleBaseName}.bundle");
+                var pNested = Path.Combine(pluginRoot, "RasenganSpell", $"{bundleBaseName}.bundle");
 
                 string path = null;
-                if (File.Exists(pAssets))        path = pAssets;
+                if (File.Exists(pAssets)) path = pAssets;
                 else if (File.Exists(pSameDir1)) path = pSameDir1;
                 else if (File.Exists(pSameDir2)) path = pSameDir2;
-                else if (File.Exists(pNested))   path = pNested;
+                else if (File.Exists(pNested)) path = pNested;
 
                 if (path == null)
                 {
-                    RasenganPlugin.Log?.LogWarning($"[Rasengan] Bundle not found. Tried: {pAssets}, {pSameDir1}, {pSameDir2}, {pNested}");
+                    RasenganPlugin.Log?.LogWarning(
+                        $"[Rasengan] Bundle not found. Tried: {pAssets}, {pSameDir1}, {pSameDir2}, {pNested}");
                     return null;
                 }
 
@@ -128,5 +224,127 @@ namespace RasenganSpell
                 return null;
             }
         }
+
+        public sealed class RasenganHoldExtend : MonoBehaviour
+        {
+            Transform _anchor;
+            Vector3 _homePos;
+            Quaternion _homeRot;
+
+            Vector3 _extendedOffset;
+            Quaternion _extendedRot;
+
+            float _moveLambda = 10f; // exponential damping constants
+            float _rotLambda = 10f;
+
+            // cache locals so we don’t allocate
+            Vector3 _targetPos;
+            Quaternion _targetRot;
+
+            public void Init(
+                Transform anchor,
+                Vector3 homePos,
+                Quaternion homeRot,
+                Vector3 extendedOffset,
+                Vector3 extendedTiltEuler,
+                float moveLambda = 10f,
+                float rotateLambda = 10f)
+            {
+                _anchor = anchor != null ? anchor : transform.parent;
+                _homePos = homePos;
+                _homeRot = homeRot;
+
+                _extendedOffset = extendedOffset;
+                _extendedRot = homeRot * Quaternion.Euler(extendedTiltEuler);
+
+                _moveLambda = Mathf.Max(1f, moveLambda);
+                _rotLambda = Mathf.Max(1f, rotateLambda);
+
+                _targetPos = _homePos;
+                _targetRot = _homeRot;
+            }
+
+            void Update()
+            {
+                // Only drive locally. If there’s ever a dedicated server with no Input,
+                // this simply does nothing (stays at home pose).
+                bool hold = Input.GetMouseButton(0);
+
+                _targetPos = hold ? _homePos + _extendedOffset : _homePos;
+                _targetRot = hold ? _extendedRot : _homeRot;
+
+                // Exponential smoothing that’s framerate-independent:
+                float posT = 1f - Mathf.Exp(-_moveLambda * Time.deltaTime);
+                float rotT = 1f - Mathf.Exp(-_rotLambda * Time.deltaTime);
+
+                // Work in local space so it follows the page/hand
+                transform.localPosition = Vector3.Lerp(transform.localPosition, _targetPos, posT);
+                transform.localRotation = Quaternion.Slerp(transform.localRotation, _targetRot, rotT);
+
+                // Optional: keep parent/anchor if someone reparented us at runtime
+                if (_anchor && transform.parent != _anchor)
+                    transform.SetParent(_anchor, worldPositionStays: false);
+            }
+        }
+        // at class scope
+        private static RasenganLogic s_currentHeldPage;   // whichever Rasengan page is currently enabled/held
+        private float _nextPoll;                           // for safety polling
+
+        private void OnEnable()
+        {
+            s_currentHeldPage = this;
+            RasenganPlugin.AnyActiveSlotChanged += OnAnyActiveSlotChanged;
+            RasenganPlugin.Log?.LogInfo("[Rasengan] Logic.OnEnable -> marked as current page.");
+        }
+
+        private void OnDisable()
+        {
+            if (s_currentHeldPage == this) s_currentHeldPage = null;
+            RasenganPlugin.AnyActiveSlotChanged -= OnAnyActiveSlotChanged;
+            RasenganPlugin.Log?.LogInfo("[Rasengan] Logic.OnDisable -> unsubscribed.");
+            // If the page is going away, definitely nuke the orb
+            KillIfOrbActive("OnDisable");
+        }
+
+        private void Update()
+        {
+            // small watchdog: every 0.25s, if this page isn't the one being held anymore, kill orb
+            if (Time.unscaledTime >= _nextPoll)
+            {
+                _nextPoll = Time.unscaledTime + 0.25f;
+                TryKillActiveIfNotHeld("poll");
+            }
+        }
+
+        private void OnAnyActiveSlotChanged()
+        {
+            RasenganPlugin.Log?.LogInfo($"[Rasengan] SlotChanged received. thisHeld={(s_currentHeldPage==this)} orb={( _activeOrb != null )} activeInHierarchy={gameObject.activeInHierarchy}");
+            TryKillActiveIfNotHeld("event");
+        }
+
+        private void TryKillActiveIfNotHeld(string reason)
+        {
+            if (_activeOrb == null) return;
+            // Our page is not the one currently enabled/held -> kill the active orb
+            if (s_currentHeldPage != this || !gameObject.activeInHierarchy || !enabled)
+            {
+                KillIfOrbActive($"not-held:{reason}");
+            }
+        }
+
+        private void KillIfOrbActive(string why)
+        {
+            if (_activeOrb == null) return;
+            RasenganPlugin.Log?.LogInfo($"[Rasengan] Killing active orb [{why}]");
+
+            Destroy(_activeOrb);
+            _activeOrb = null;
+
+            // whatever you already do to unhide the page again:
+            // e.g., ShowPageTextures(true); ResetFX(); etc.
+        }
+
+
+
     }
 }
