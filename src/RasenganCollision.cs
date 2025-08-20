@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
@@ -34,9 +35,9 @@ namespace RasenganSpell
         /// <summary>Called by RasenganLogic right after instantiation.</summary>
         public void Init(Transform ownerRoot, int level, Collider[] pageColliders, float radius)
         {
-            _ownerRoot   = ownerRoot;
-            castingLevel = Mathf.Max(1, level);
-            _pageCols    = pageColliders ?? Array.Empty<Collider>();
+            _ownerRoot    = ownerRoot;
+            castingLevel  = Mathf.Max(1, level);
+            _pageCols     = pageColliders ?? Array.Empty<Collider>();
             triggerRadius = radius > 0f ? radius : triggerRadius;
         }
 
@@ -99,7 +100,7 @@ namespace RasenganSpell
             }
 
             // 1) PLAYER: PlayerMovement present?
-            var pm = other.GetComponentInParent<PlayerMovement>();
+            var pm = other.gameObject.GetComponent<PlayerMovement>();
             if (pm != null)
             {
                 // Do not damage our own caster
@@ -122,8 +123,8 @@ namespace RasenganSpell
                 return;
             }
 
-            // 2) MONSTER/NPC: MonsterHitScript somewhere under the same root?
-            if (DamageMonster(other, root))
+            // 2) MONSTER/NPC: anything under the root with HitTheMonster(float|int)?
+            if (DamageMonster(other))
             {
                 ApplyKnockback(other);
                 Consume("monster");
@@ -149,23 +150,10 @@ namespace RasenganSpell
             try
             {
                 float dmg = ComputeDamage();
-                var attackerGo = _ownerRoot ? _ownerRoot.gameObject : gameObject;
+                GameObject attacker = _ownerRoot ? _ownerRoot.gameObject : gameObject;
                 RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Player hit '{pm.playername}' dmg={dmg}");
-
-                var t = pm.GetType();
-
-                // Prefer NonRpcDamagePlayer if available, else DamagePlayer. Try common signatures.
-                var nonRpc = t.GetMethod("NonRpcDamagePlayer",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (nonRpc != null && TryInvokeDamageLike(nonRpc, pm, dmg, attackerGo))
-                    return true;
-
-                var local = t.GetMethod("DamagePlayer",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                if (local != null && TryInvokeDamageLike(local, pm, dmg, attackerGo))
-                    return true;
-
-                return false;
+                pm.DamagePlayer(dmg, attacker, "rasengan");
+                return true;
             }
             catch (Exception e)
             {
@@ -175,107 +163,50 @@ namespace RasenganSpell
         }
 
         /// <summary>
-        /// Calls MonsterHitScript.HitTheMonster(float) on any such component under the same root.
-        /// First tries parents of the collider; if not found, searches the entire root hierarchy.
+        /// Finds any component under the collider’s parents or the same root that exposes
+        /// HitTheMonster(float) or HitTheMonster(int) and invokes it.
+        /// Prefers a component literally named "MonsterHitScript" when multiple candidates exist.
         /// </summary>
-        private bool DamageMonster(Collider other, Transform root)
+        private bool DamageMonster(Collider other)
         {
             try
             {
                 float dmg = ComputeDamage();
 
-                // --- Try on the collider's parent chain (fast path)
-                var comp = other.GetComponentsInParent<MonoBehaviour>(true)
-                                .FirstOrDefault(mb => mb && mb.GetType().Name == "MonsterHitScript");
+                //var parentCandidates = other.GetComponentsInParent<MonsterHitScript>(true);
+                //var rootCandidates =
+                //    (other ? other.GetComponentsInChildren<MonsterHitScript>(true) : Array.Empty<MonsterHitScript>());
+                
+                // Combine (parents first), then root
+                //IEnumerable<MonsterHitScript> candidates = parentCandidates.Concat(rootCandidates)
+                //    .Where(mb => mb != null);
 
-                // --- If not found there, search anywhere under the same root
-                if (comp == null && root)
-                {
-                    comp = root.GetComponentsInChildren<MonoBehaviour>(true)
-                               .FirstOrDefault(mb => mb && mb.GetType().Name == "MonsterHitScript");
-                }
+                //MonsterHitScript ms = candidates.First();
 
-                if (comp == null)
+                MonsterHitScript ms = other.gameObject.GetComponent<MonsterHitScript>();
+                
+                if (ms == null)
                 {
-                    // For troubleshooting, show a small list of components on the root once per contact
-                    var compNames = root ? root.GetComponentsInChildren<MonoBehaviour>(true)
-                                                .Where(x => x).Select(x => x.GetType().Name).Distinct().Take(10)
-                                                .ToArray() : Array.Empty<string>();
-                    RasenganPlugin.Log?.LogInfo($"[RasenganCollision] No MonsterHitScript on '{root?.name ?? other.name}'. Components: {string.Join(", ", compNames)}");
+                    return false;
+                } else if (ms.gameObject.name == "wizardtrio (1)")
+                {
                     return false;
                 }
+                
+                ms.HitTheMonster(10000);
+                
+                RasenganPlugin.Log?.LogInfo(
+                        $"[RasenganCollision] Monster killed '{ms.gameObject.name}' via {ms.GetType().Name}.HitTheMonster");
 
-                // Look specifically for HitTheMonster(float) or (int)
-                var t = comp.GetType();
-                var floatMethod = t.GetMethod("HitTheMonster",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                    binder: null,
-                    types: new[] { typeof(float) },
-                    modifiers: null);
-
-                if (floatMethod != null)
-                {
-                    floatMethod.Invoke(comp, new object[] { dmg });
-                    RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Monster hit '{comp.gameObject.name}' via MonsterHitScript.HitTheMonster(float) dmg={dmg}");
-                    return true;
-                }
-
-                var intMethod = t.GetMethod("HitTheMonster",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                    binder: null,
-                    types: new[] { typeof(int) },
-                    modifiers: null);
-
-                if (intMethod != null)
-                {
-                    intMethod.Invoke(comp, new object[] { Mathf.RoundToInt(dmg) });
-                    RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Monster hit '{comp.gameObject.name}' via MonsterHitScript.HitTheMonster(int) dmg={dmg}");
-                    return true;
-                }
-
-                RasenganPlugin.Log?.LogWarning("[RasenganCollision] MonsterHitScript found but no HitTheMonster(float) or (int) method.");
-                return false;
+                return true;
+                
+                    
             }
             catch (Exception e)
             {
                 RasenganPlugin.Log?.LogWarning($"[RasenganCollision] DamageMonster failed: {e}");
                 return false;
             }
-        }
-
-        /// <summary>
-        /// Tries a few common PlayerMovement damage signatures:
-        /// (float), (float, GameObject), (float, GameObject, string)
-        /// </summary>
-        private bool TryInvokeDamageLike(MethodInfo mi, object target, float dmg, GameObject attacker)
-        {
-            try
-            {
-                var ps = mi.GetParameters();
-                if (ps.Length == 1 && ps[0].ParameterType == typeof(float))
-                {
-                    mi.Invoke(target, new object[] { dmg });
-                    return true;
-                }
-                if (ps.Length == 2 && ps[0].ParameterType == typeof(float) && ps[1].ParameterType == typeof(GameObject))
-                {
-                    mi.Invoke(target, new object[] { dmg, attacker });
-                    return true;
-                }
-                if (ps.Length == 3 &&
-                    ps[0].ParameterType == typeof(float) &&
-                    ps[1].ParameterType == typeof(GameObject) &&
-                    ps[2].ParameterType == typeof(string))
-                {
-                    mi.Invoke(target, new object[] { dmg, attacker, "rasengan" });
-                    return true;
-                }
-            }
-            catch (Exception e)
-            {
-                RasenganPlugin.Log?.LogWarning($"[RasenganCollision] Invoke {mi.DeclaringType.Name}.{mi.Name} failed: {e.Message}");
-            }
-            return false;
         }
 
         private void ApplyKnockback(Collider other)
