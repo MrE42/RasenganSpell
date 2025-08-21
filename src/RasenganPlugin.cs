@@ -61,6 +61,11 @@ namespace RasenganSpell
             try
             {
                 BlackMagicManager.RegisterSpell(this, typeof(RasenganData), typeof(RasenganLogic));
+                BlackMagicManager.RegisterDeathIcon(
+                    this,
+                    "rasengan",
+                    "Rasengan_Death"
+                );
                 Log.LogInfo("[Rasengan] Registered Rasengan spell with BlackMagic.");
             }
             catch (Exception e)

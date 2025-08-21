@@ -9,7 +9,7 @@ namespace RasenganSpell
     {
         [Header("Damage")]
         public float baseDamage = 24f;
-        public float damagePerLevel = 6f;
+        public float damagePerLevel = 2f;
         public int   castingLevel = 1;
 
         [Header("Collision")]
@@ -27,7 +27,12 @@ namespace RasenganSpell
 
         private SphereCollider _myCol;
         private bool _consumed;
+        
+        public Transform OwnerRoot => _ownerRoot;
 
+        // (optional convenience)
+        public bool IsOwnedBy(Transform t) => _ownerRoot == t;
+        
         /// <summary>Called by RasenganLogic right after instantiation.</summary>
         public void Init(Transform ownerRoot, int level, Collider[] pageColliders, float radius, float life)
         {
@@ -36,6 +41,7 @@ namespace RasenganSpell
             _pageCols     = pageColliders ?? Array.Empty<Collider>();
             triggerRadius = radius > 0f ? radius : triggerRadius;
             lifeSeconds = life;
+
         }
 
         private void Awake()
@@ -83,27 +89,15 @@ namespace RasenganSpell
         {
             if (_consumed || !other) return;
 
-            // Skip owner & our own page hierarchies completely
-            var root = GetRoot(other);
-            if (_ownerRoot && root == _ownerRoot)
-            {
-                Physics.IgnoreCollision(_myCol, other, true);
-                return;
-            }
-            if (IsOrHasPage(other))
-            {
-                Physics.IgnoreCollision(_myCol, other, true);
-                return;
-            }
-
-            // 1) PLAYER: PlayerMovement present?
-            var pm = other.gameObject.GetComponent<PlayerMovement>();
+            // 1) PLAYER FIRST: look up the hierarchy so we catch hand/weapon/etc. colliders
+            var pm = other.GetComponentInParent<PlayerMovement>();
             if (pm != null)
             {
-                // Do not damage our own caster
+                // Ignore our own caster
                 if (_ownerRoot && pm.transform.root == _ownerRoot)
                 {
                     Physics.IgnoreCollision(_myCol, other, true);
+                    RasenganPlugin.Log?.LogInfo("[RasenganCollision] Ignoring owner (player).");
                     return;
                 }
 
@@ -111,28 +105,47 @@ namespace RasenganSpell
                 {
                     ApplyPlayerKnockbackViaPM(pm, castingLevel);
                     Consume("player");
-                    return;
                 }
                 else
                 {
-                    RasenganPlugin.Log?.LogWarning("[RasenganCollision] PlayerMovement found but no usable damage method. Ignoring this collider.");
+                    RasenganPlugin.Log?.LogWarning("[RasenganCollision] PlayerMovement found but no usable damage method.");
                     Physics.IgnoreCollision(_myCol, other, true);
                 }
                 return;
             }
 
-            // 2) MONSTER/NPC: anything under the root with HitTheMonster(float|int)?
+            // 2) Ignore ONLY our own page colliders (safety; Start() already set IgnoreCollision)
+            if (IsOurPageCollider(other))
+            {
+                Physics.IgnoreCollision(_myCol, other, true);
+                RasenganPlugin.Log?.LogInfo("[RasenganCollision] Ignoring our page collider.");
+                return;
+            }
+
+            // 3) MONSTERS/NPCs
             if (DamageMonster(other))
             {
-                //ApplyKnockback(other);
                 Consume("monster");
                 return;
             }
 
-            // 3) Non-target; keep moving and ignore further collisions with this collider
+            // 4) Non-target; ignore going forward
             RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Non-target contact with '{other.name}'. Ignoring and continuing.");
             Physics.IgnoreCollision(_myCol, other, true);
         }
+
+        private bool IsOurPageCollider(Collider c)
+        {
+            if (!c || _pageCols == null) return false;
+            foreach (var pc in _pageCols)
+            {
+                if (!pc) continue;
+                if (c == pc) return true;
+                if (c.transform.IsChildOf(pc.transform)) return true;
+            }
+            return false;
+        }
+
 
         private static Transform GetRoot(Collider c)
         {
@@ -215,14 +228,18 @@ namespace RasenganSpell
                 Vector3 dirPlayerToRasengan = (transform.position - pm.transform.position).normalized;
 
                 // Level-based extra distance to push the hit point beyond the Rasengan
-                float extraDist = Mathf.Clamp(level * knockbackLevelDistPerLevel, 0f, knockbackLevelDistMax);
+                float extraDist = Mathf.Clamp(3 * level * knockbackLevelDistPerLevel, 0f, 3 * knockbackLevelDistMax);
 
                 // Put the proxy a bit PAST the Rasengan along that direction
                 Vector3 hit = dirPlayerToRasengan * extraDist;
 
-                pm.velocity = 12 * hit;
+                GameObject proxy = new GameObject();
+
+                proxy.transform.position = (transform.position + hit);
                 
-                //pm.ApplyKnockback(proxy);
+                pm.ApplyKnockback(proxy);
+
+                pm.velocity.y = 4 + (extraDist / 4);
                 
             }
             catch (Exception e)

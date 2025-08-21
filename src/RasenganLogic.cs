@@ -21,7 +21,7 @@ namespace RasenganSpell
             var latch = PageVisibilityLatch.GetOrAdd(page.gameObject);
             latch.Acquire();
 
-            activeOrb = TrySpawnFromBundle("rasengan", "RasenganOrbVFX", page.transform, Vector3.zero);
+            activeOrb = TrySpawnFromBundle("rasengan", "TheRasengan", page.transform, Vector3.zero);
             if (!activeOrb)
             {
                 latch.Release();
