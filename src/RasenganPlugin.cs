@@ -80,7 +80,7 @@ namespace RasenganSpell
         }
 
         private void Update()
-        {
+        {   
             // F6: ask BlackMagic to spawn a Rasengan PAGE at the player's camera
             if (Input.GetKeyDown(KeyCode.F6) && debug)
             {

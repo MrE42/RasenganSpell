@@ -9,71 +9,52 @@ namespace RasenganSpell
     {
         static bool _installed;
 
-        static readonly string[] CandidateMethodNames =
-        {
-            "SetActiveSlot", "SwitchSlot", "SwitchActiveSlot", "EquipSlot", "SelectSlot",
-            "SelectHotbarSlot", "TrySwitchSlot", "TryEquip", "Equip",
-            "OnSelectedItemChanged", "SetCurrentItem"
-        };
+        // What RasenganLogic subscribes to.
+        public static event Action AnyActiveSlotChanged;
 
         public static void TryInstall(Harmony harmony)
         {
             if (_installed || harmony == null) return;
             _installed = true;
 
-            int patched = 0;
             try
             {
-                var asm = AppDomain.CurrentDomain.GetAssemblies()
-                    .FirstOrDefault(a => a.GetName().Name == "Assembly-CSharp");
-                if (asm == null)
+                var piType = AccessTools.TypeByName("PlayerInventory");
+                if (piType == null)
                 {
-                    RasenganPlugin.Log?.LogWarning("[Rasengan/Harmony] Assembly-CSharp not found.");
+                    RasenganPlugin.Log?.LogWarning("[Rasengan/Harmony] PlayerInventory type not found.");
                     return;
                 }
 
-                var post = new HarmonyMethod(typeof(RasenganSlotHooks)
-                    .GetMethod(nameof(PostfixNotify), BindingFlags.Static | BindingFlags.NonPublic));
+                // Find PlayerInventory.activateHotbar (case-insensitive). Prefer the parameterless overload if any.
+                var candidates = piType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    .Where(m => string.Equals(m.Name, "activateHotbar", StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
 
-                foreach (var t in asm.GetTypes())
+                var target = candidates.FirstOrDefault(m => m.GetParameters().Length == 0) ?? candidates.FirstOrDefault();
+                if (target == null)
                 {
-                    // 2a) Hotbar-like methods
-                    foreach (var m in t.GetMethods(BindingFlags.Instance | BindingFlags.Public |
-                                                   BindingFlags.NonPublic))
-                    {
-                        if (m.ReturnType != typeof(void)) continue;
-                        if (!CandidateMethodNames.Contains(m.Name)) continue;
-
-                        harmony.Patch(m, postfix: post);
-                        RasenganPlugin.Log?.LogInfo($"[Rasengan/Harmony] Hooked {t.FullName}.{m.Name}()");
-                        patched++;
-                    }
-
-                    // 2b) Also listen to OnDisable on anything (pages, items, slots, etc.)
-                    var onDisable = t.GetMethod("OnDisable",
-                        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-                    if (onDisable != null)
-                    {
-                        harmony.Patch(onDisable, postfix: post);
-                        RasenganPlugin.Log?.LogInfo($"[Rasengan/Harmony] Hooked {t.FullName}.OnDisable()");
-                        patched++;
-                    }
+                    RasenganPlugin.Log?.LogWarning("[Rasengan/Harmony] Method 'activateHotbar' not found on PlayerInventory.");
+                    return;
                 }
 
-                RasenganPlugin.Log?.LogInfo($"[Rasengan/Harmony] Installed {patched} hook(s).");
+                var post = new HarmonyMethod(typeof(RasenganSlotHooks).GetMethod(nameof(ActivateHotbar_Postfix),
+                    BindingFlags.Static | BindingFlags.NonPublic));
+
+                harmony.Patch(target, postfix: post);
+                RasenganPlugin.Log?.LogInfo("[Rasengan/Harmony] Hooked PlayerInventory.activateHotbar");
             }
             catch (Exception e)
             {
-                RasenganPlugin.Log?.LogWarning($"[Rasengan/Harmony] Failed installing hooks: {e}");
+                RasenganPlugin.Log?.LogWarning($"[Rasengan/Harmony] Failed to install activateHotbar hook: {e}");
             }
         }
 
-        // Harmony passes __originalMethod so we can log exactly what fired.
-        static void PostfixNotify(MethodBase __originalMethod)
+        // Single signal point used by RasenganLogic.
+        static void ActivateHotbar_Postfix()
         {
-            RasenganPlugin.Log?.LogInfo(
-                $"[Rasengan/Harmony] Postfix from {__originalMethod?.DeclaringType?.FullName}.{__originalMethod?.Name}");
-            RasenganPlugin.RaiseAnyActiveSlotChanged("HarmonyPostfix");
+            RasenganPlugin.Log?.LogInfo("[Rasengan/Harmony] AnyActiveSlotChanged raised by: PlayerInventory.activateHotbar");
+            AnyActiveSlotChanged?.Invoke();
         }
     }
 }
