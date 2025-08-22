@@ -7,38 +7,37 @@ namespace RasenganSpell
     [RequireComponent(typeof(Rigidbody))]
     public sealed class RasenganCollision : MonoBehaviour
     {
-        [Header("Damage")]
-        public float baseDamage = 24f;
+        [Header("Damage")] public float baseDamage = 24f;
         public float damagePerLevel = 2f;
-        public int   castingLevel = 1;
+        public int castingLevel = 1;
 
-        [Header("Collision")]
-        public float triggerRadius = 0.6f;
-        public float lifeSeconds   = 10f;
+        [Header("Collision")] public float triggerRadius = 0.6f;
+        public float lifeSeconds = 10f;
 
         [Header("Player Knockback (via PlayerMovement)")]
         public float knockbackLevelDistPerLevel = 0.40f; // extra meters per level
-        public float knockbackLevelDistMax      = 3.0f;  // cap so it doesn't get silly
+
+        public float knockbackLevelDistMax = 3.0f; // cap so it doesn't get silly
 
         // Set by RasenganLogic.Init(...)
         private Transform _ownerRoot;
         private Collider[] _ownerCols = Array.Empty<Collider>();
-        private Collider[] _pageCols  = Array.Empty<Collider>();
+        private Collider[] _pageCols = Array.Empty<Collider>();
 
         private SphereCollider _myCol;
         private bool _consumed;
-        
+
         public Transform OwnerRoot => _ownerRoot;
 
         // (optional convenience)
         public bool IsOwnedBy(Transform t) => _ownerRoot == t;
-        
+
         /// <summary>Called by RasenganLogic right after instantiation.</summary>
         public void Init(Transform ownerRoot, int level, Collider[] pageColliders, float radius, float life)
         {
-            _ownerRoot    = ownerRoot;
-            castingLevel  = Mathf.Max(1, level);
-            _pageCols     = pageColliders ?? Array.Empty<Collider>();
+            _ownerRoot = ownerRoot;
+            castingLevel = Mathf.Max(1, level);
+            _pageCols = pageColliders ?? Array.Empty<Collider>();
             triggerRadius = radius > 0f ? radius : triggerRadius;
             lifeSeconds = life;
 
@@ -56,7 +55,7 @@ namespace RasenganSpell
 
             if (lifeSeconds > 0f) Destroy(gameObject, lifeSeconds);
         }
-        
+
         private void OnEnable()
         {
             RasenganOrbRegistry.Register(this);
@@ -75,7 +74,7 @@ namespace RasenganSpell
                 : Array.Empty<Collider>();
 
             IgnoreSet(_ownerCols, "owner");
-            IgnoreSet(_pageCols,  "page");
+            IgnoreSet(_pageCols, "page");
 
             RasenganPlugin.Log?.LogInfo(
                 $"[RasenganCollision] Ready. ownerRoot={_ownerRoot?.name ?? "null"}, " +
@@ -92,6 +91,7 @@ namespace RasenganSpell
                 Physics.IgnoreCollision(_myCol, col, true);
                 c++;
             }
+
             RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Ignoring {c}/{cols.Length} colliders from {label} set.");
         }
 
@@ -118,9 +118,11 @@ namespace RasenganSpell
                 }
                 else
                 {
-                    RasenganPlugin.Log?.LogWarning("[RasenganCollision] PlayerMovement found but no usable damage method.");
+                    RasenganPlugin.Log?.LogWarning(
+                        "[RasenganCollision] PlayerMovement found but no usable damage method.");
                     Physics.IgnoreCollision(_myCol, other, true);
                 }
+
                 return;
             }
 
@@ -140,7 +142,8 @@ namespace RasenganSpell
             }
 
             // 4) Non-target; ignore going forward
-            RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Non-target contact with '{other.name}'. Ignoring and continuing.");
+            RasenganPlugin.Log?.LogInfo(
+                $"[RasenganCollision] Non-target contact with '{other.name}'. Ignoring and continuing.");
             Physics.IgnoreCollision(_myCol, other, true);
         }
 
@@ -153,14 +156,8 @@ namespace RasenganSpell
                 if (c == pc) return true;
                 if (c.transform.IsChildOf(pc.transform)) return true;
             }
+
             return false;
-        }
-
-
-        private static Transform GetRoot(Collider c)
-        {
-            if (!c) return null;
-            return c.attachedRigidbody ? c.attachedRigidbody.transform.root : c.transform.root;
         }
 
         private float ComputeDamage() =>
@@ -195,23 +192,24 @@ namespace RasenganSpell
                 float dmg = ComputeDamage() * 10;
 
                 MonsterHitScript ms = other.gameObject.GetComponent<MonsterHitScript>();
-                
+
                 if (ms == null)
                 {
                     return false;
-                } else if (ms.gameObject.name == "wizardtrio (1)")
+                }
+                else if (ms.gameObject.name == "wizardtrio (1)")
                 {
                     return false;
                 }
-                
+
                 ms.HitTheMonster(dmg);
-                
+
                 RasenganPlugin.Log?.LogInfo(
-                        $"[RasenganCollision] Monster killed '{ms.gameObject.name}' via {ms.GetType().Name}.HitTheMonster");
+                    $"[RasenganCollision] Monster killed '{ms.gameObject.name}' via {ms.GetType().Name}.HitTheMonster");
 
                 return true;
-                
-                    
+
+
             }
             catch (Exception e)
             {
@@ -236,11 +234,13 @@ namespace RasenganSpell
                 GameObject proxy = new GameObject();
 
                 proxy.transform.position = (transform.position + hit);
-                
+
                 pm.ApplyKnockback(proxy);
 
+                Destroy(proxy);
+
                 pm.velocity.y = 4 + (extraDist / 4);
-                
+
                 // Me: You know you can also change x and z here right?
                 // Also Me: Nah, we use the ApplyKnockback function
 
@@ -259,8 +259,5 @@ namespace RasenganSpell
             RasenganPlugin.Log?.LogInfo($"[RasenganCollision] Consumed ({reason}).");
             Destroy(gameObject);
         }
-
-        private static bool IsOrHasPage(Collider c) =>
-            c && c.GetComponentInParent<PageController>() != null;
     }
 }
