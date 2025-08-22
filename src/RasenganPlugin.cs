@@ -55,9 +55,6 @@ namespace RasenganSpell
             
             harmony = new Harmony(PluginGuid);
             RasenganSlotHooks.TryInstall(harmony);
-            RasenganSlotHooks.AnyActiveSlotChanged -= OnAnyActiveSlotChanged; // avoid double-subscribe on reloads
-            RasenganSlotHooks.AnyActiveSlotChanged += OnAnyActiveSlotChanged;
-
 
             // Register: (plugin, logicType, dataType)
             try
