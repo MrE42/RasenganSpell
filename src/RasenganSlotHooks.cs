@@ -1,7 +1,7 @@
 ﻿using System;
-using System.Linq;
 using System.Reflection;
 using HarmonyLib;
+using UnityEngine; // for Component
 
 namespace RasenganSpell
 {
@@ -9,39 +9,34 @@ namespace RasenganSpell
     {
         static bool _installed;
 
-        // What RasenganLogic subscribes to.
-        public static event Action AnyActiveSlotChanged;
+        // Now includes WHICH player changed.
+        public static event Action<Transform> AnyActiveSlotChanged;
 
         public static void TryInstall(Harmony harmony)
         {
-            if (_installed || harmony == null) return;
-            _installed = true;
+            if (_installed) return;
 
             try
             {
-                var piType = AccessTools.TypeByName("PlayerInventory");
-                if (piType == null)
+                // Patch PlayerInventory.activateHotbar (declared method)
+                var playerInvType = AccessTools.TypeByName("PlayerInventory");
+                if (playerInvType == null)
                 {
-                    RasenganPlugin.Log?.LogWarning("[Rasengan/Harmony] PlayerInventory type not found.");
+                    RasenganPlugin.Log?.LogWarning("[Rasengan/Harmony] Could not find type 'PlayerInventory'.");
                     return;
                 }
 
-                // Find PlayerInventory.activateHotbar (case-insensitive). Prefer the parameterless overload if any.
-                var candidates = piType.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                    .Where(m => string.Equals(m.Name, "activateHotbar", StringComparison.OrdinalIgnoreCase))
-                    .ToArray();
-
-                var target = candidates.FirstOrDefault(m => m.GetParameters().Length == 0) ?? candidates.FirstOrDefault();
+                var target = AccessTools.Method(playerInvType, "activateHotbar");
                 if (target == null)
                 {
-                    RasenganPlugin.Log?.LogWarning("[Rasengan/Harmony] Method 'activateHotbar' not found on PlayerInventory.");
+                    RasenganPlugin.Log?.LogWarning("[Rasengan/Harmony] Could not find PlayerInventory.activateHotbar");
                     return;
                 }
 
-                var post = new HarmonyMethod(typeof(RasenganSlotHooks).GetMethod(nameof(ActivateHotbar_Postfix),
-                    BindingFlags.Static | BindingFlags.NonPublic));
+                var postfix = new HarmonyMethod(typeof(RasenganSlotHooks), nameof(ActivateHotbar_Postfix));
+                harmony.Patch(target, postfix: postfix);
 
-                harmony.Patch(target, postfix: post);
+                _installed = true;
                 RasenganPlugin.Log?.LogInfo("[Rasengan/Harmony] Hooked PlayerInventory.activateHotbar");
             }
             catch (Exception e)
@@ -50,11 +45,22 @@ namespace RasenganSpell
             }
         }
 
-        // Single signal point used by RasenganLogic.
-        static void ActivateHotbar_Postfix()
+        // Strongly typed __instance so Harmony gives us the real component.
+        static void ActivateHotbar_Postfix(object __instance)
         {
-            RasenganPlugin.Log?.LogInfo("[Rasengan/Harmony] AnyActiveSlotChanged raised by: PlayerInventory.activateHotbar");
-            AnyActiveSlotChanged?.Invoke();
+            try
+            {
+                var comp = __instance as Component;
+                var root = comp ? comp.transform.root : null;
+                if (root == null) return;
+
+                RasenganPlugin.Log?.LogInfo("[Rasengan/Harmony] ActiveSlotChanged: " + root.name);
+                AnyActiveSlotChanged?.Invoke(root);
+            }
+            catch (Exception e)
+            {
+                RasenganPlugin.Log?.LogWarning("[Rasengan/Harmony] ActivateHotbar_Postfix error: " + e);
+            }
         }
     }
 }

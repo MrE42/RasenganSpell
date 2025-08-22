@@ -56,6 +56,16 @@ namespace RasenganSpell
 
             if (lifeSeconds > 0f) Destroy(gameObject, lifeSeconds);
         }
+        
+        private void OnEnable()
+        {
+            RasenganOrbRegistry.Register(this);
+        }
+
+        private void OnDestroy()
+        {
+            RasenganOrbRegistry.Unregister(this);
+        }
 
         private void Start()
         {
@@ -182,17 +192,7 @@ namespace RasenganSpell
         {
             try
             {
-                float dmg = ComputeDamage();
-
-                //var parentCandidates = other.GetComponentsInParent<MonsterHitScript>(true);
-                //var rootCandidates =
-                //    (other ? other.GetComponentsInChildren<MonsterHitScript>(true) : Array.Empty<MonsterHitScript>());
-                
-                // Combine (parents first), then root
-                //IEnumerable<MonsterHitScript> candidates = parentCandidates.Concat(rootCandidates)
-                //    .Where(mb => mb != null);
-
-                //MonsterHitScript ms = candidates.First();
+                float dmg = ComputeDamage() * 10;
 
                 MonsterHitScript ms = other.gameObject.GetComponent<MonsterHitScript>();
                 
@@ -204,7 +204,7 @@ namespace RasenganSpell
                     return false;
                 }
                 
-                ms.HitTheMonster(10000);
+                ms.HitTheMonster(dmg);
                 
                 RasenganPlugin.Log?.LogInfo(
                         $"[RasenganCollision] Monster killed '{ms.gameObject.name}' via {ms.GetType().Name}.HitTheMonster");
@@ -241,6 +241,9 @@ namespace RasenganSpell
 
                 pm.velocity.y = 4 + (extraDist / 4);
                 
+                // Me: You know you can also change x and z here right?
+                // Also Me: Nah, we use the ApplyKnockback function
+
             }
             catch (Exception e)
             {

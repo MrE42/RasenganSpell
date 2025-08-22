@@ -82,24 +82,6 @@ namespace RasenganSpell
             RasenganPlugin.Log?.LogDebug($"[Rasengan] Orb ready. owner='{ownerRoot?.name ?? "null"}', level={castingLevel}");
         }
 
-        private void OnEnable()
-        {
-            RasenganSlotHooks.AnyActiveSlotChanged += OnAnyActiveSlotChanged;
-        }
-        
-        private void OnDisable()
-        {
-            RasenganSlotHooks.AnyActiveSlotChanged -= OnAnyActiveSlotChanged;
-        }
-
-        // --- Replace this method body (keep signature) ---
-        private void OnAnyActiveSlotChanged()
-        {
-            // Only care if we actually have an active orb
-            if (activeOrb == null) return;
-            Object.Destroy(activeOrb);
-        }
-
         // ===== AssetBundle spawn helper (unchanged) =====
         private static GameObject TrySpawnFromBundle(string bundleBaseName, string prefabName, Transform parent, Vector3 localPos)
         {

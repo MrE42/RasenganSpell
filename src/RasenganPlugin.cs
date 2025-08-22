@@ -55,6 +55,8 @@ namespace RasenganSpell
             
             harmony = new Harmony(PluginGuid);
             RasenganSlotHooks.TryInstall(harmony);
+            RasenganSlotHooks.AnyActiveSlotChanged -= OnAnyActiveSlotChanged; // avoid double-subscribe on reloads
+            RasenganSlotHooks.AnyActiveSlotChanged += OnAnyActiveSlotChanged;
 
 
             // Register: (plugin, logicType, dataType)
@@ -116,9 +118,13 @@ namespace RasenganSpell
                     
                 }
             }
-
+        }
+        private static void OnAnyActiveSlotChanged(Transform changedRoot)
+        {
+            // This runs on EVERY client when *any* player's hotbar activates.
+            var count = RasenganOrbRegistry.DestroyAllUnder(changedRoot, "hotbar-change");
+            RasenganPlugin.Log?.LogInfo($"[NetCleanup] {changedRoot.name} hotbar changed -> destroyed {count} orb(s).");
 
         }
-
     }
 }

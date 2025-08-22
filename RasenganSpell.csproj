@@ -84,9 +84,9 @@
     <MakeDir Directories="$(SpritesDest)" />
 
     <!-- 0) Root Thunderstore files -->
-    <Copy SourceFiles="$(AssetsRoot)\manifest.json" DestinationFiles="$(PackageRoot)\manifest.json" Condition="Exists('$(AssetsRoot)\manifest.json')" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\manifest.json" DestinationFiles="$(PackageRoot)\manifest.json" Condition="Exists('$(MSBuildProjectDirectory)\manifest.json')" />
     <Copy SourceFiles="$(AssetsRoot)\icon.png" DestinationFiles="$(PackageRoot)\icon.png" Condition="Exists('$(AssetsRoot)\icon.png')" />
-    <Copy SourceFiles="$(AssetsRoot)\README.md" DestinationFiles="$(PackageRoot)\README.md" Condition="Exists('$(AssetsRoot)\README.md')" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\README.md" DestinationFiles="$(PackageRoot)\README.md" Condition="Exists('$(MSBuildProjectDirectory)\README.md')" />
 
     <!-- 1) DLL -->
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginDest)" />
