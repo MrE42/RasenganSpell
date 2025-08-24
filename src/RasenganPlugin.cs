@@ -6,7 +6,6 @@ using BepInEx.Logging;
 using UnityEngine;
 using BlackMagicAPI.Managers;
 using UnityEngine.Rendering;
-using HarmonyLib;
 
 namespace RasenganSpell
 {
@@ -33,28 +32,13 @@ namespace RasenganSpell
 
         public static string modsync = "all";
 
-        private static bool debug = true;
-        
-        // 2.a) Global event everyone can listen to
-        public static event Action AnyActiveSlotChanged;
-        
-        internal static Harmony harmony;
-
-        public static void RaiseAnyActiveSlotChanged([CallerMemberName] string src = null)
-        {
-            Log?.LogInfo($"[Rasengan/Harmony] AnyActiveSlotChanged raised by: {src}");
-            AnyActiveSlotChanged?.Invoke();
-        }
-
+        private static bool debug = false;
 
         private void Awake()
         {
             Log = Logger;
             PluginDir = Path.GetDirectoryName(Info.Location) ?? Directory.GetCurrentDirectory();
             Log.LogInfo($"[Rasengan] PluginDir = {PluginDir}");
-            
-            harmony = new Harmony(PluginGuid);
-            RasenganSlotHooks.TryInstall(harmony);
 
             // Register: (plugin, logicType, dataType)
             try
@@ -115,13 +99,6 @@ namespace RasenganSpell
                     
                 }
             }
-        }
-        private static void OnAnyActiveSlotChanged(Transform changedRoot)
-        {
-            // This runs on EVERY client when *any* player's hotbar activates.
-            var count = RasenganOrbRegistry.DestroyAllUnder(changedRoot, "hotbar-change");
-            RasenganPlugin.Log?.LogInfo($"[NetCleanup] {changedRoot.name} hotbar changed -> destroyed {count} orb(s).");
-
         }
     }
 }

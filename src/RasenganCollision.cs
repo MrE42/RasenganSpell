@@ -8,11 +8,11 @@ namespace RasenganSpell
     public sealed class RasenganCollision : MonoBehaviour
     {
         [Header("Damage")] public float baseDamage = 24f;
-        public float damagePerLevel = 2f;
+        public float damagePerLevel = 4f;
         public int castingLevel = 1;
 
         [Header("Collision")] public float triggerRadius = 0.6f;
-        public float lifeSeconds = 10f;
+        public float lifeSeconds;
 
         [Header("Player Knockback (via PlayerMovement)")]
         public float knockbackLevelDistPerLevel = 0.40f; // extra meters per level
@@ -33,12 +33,11 @@ namespace RasenganSpell
         public bool IsOwnedBy(Transform t) => _ownerRoot == t;
 
         /// <summary>Called by RasenganLogic right after instantiation.</summary>
-        public void Init(Transform ownerRoot, int level, Collider[] pageColliders, float radius, float life)
+        public void Init(Transform ownerRoot, int level, Collider[] pageColliders, float life)
         {
             _ownerRoot = ownerRoot;
             castingLevel = Mathf.Max(1, level);
             _pageCols = pageColliders ?? Array.Empty<Collider>();
-            triggerRadius = radius > 0f ? radius : triggerRadius;
             lifeSeconds = life;
 
         }
@@ -217,7 +216,9 @@ namespace RasenganSpell
                 return false;
             }
         }
-
+        
+        // Me: You know you can also change x and z here right?
+        // Also Me: Nah, we use the ApplyKnockback function
         private void ApplyPlayerKnockbackViaPM(PlayerMovement pm, int level)
         {
             try
@@ -233,16 +234,13 @@ namespace RasenganSpell
 
                 GameObject proxy = new GameObject();
 
-                proxy.transform.position = (transform.position + hit);
+                proxy.transform.position = (transform.position + (3 * hit));
 
                 pm.ApplyKnockback(proxy);
 
                 Destroy(proxy);
 
-                pm.velocity.y = 4 + (extraDist / 4);
-
-                // Me: You know you can also change x and z here right?
-                // Also Me: Nah, we use the ApplyKnockback function
+                pm.velocity.y = 10 + (extraDist / 4);
 
             }
             catch (Exception e)

@@ -9,6 +9,8 @@ namespace RasenganSpell
     public class RasenganLogic : SpellLogic
     {
         [SerializeField] private GameObject activeOrb;
+
+        public static float lifeSeconds = 10.0f;
         public override void CastSpell(GameObject player, PageController page, Vector3 spawnPos, Vector3 dir, int castingLevel)
         {
             RasenganPlugin.Log?.LogInfo("[Rasengan] CastSpell invoked.");
@@ -45,21 +47,21 @@ namespace RasenganSpell
             }
 
             var pageCols  = page.GetComponentsInChildren<Collider>(includeInactive: true);
-            var ownerRoot = (player != null) ? player.transform.root : page.transform.root;
+            var inv = page ? page.GetComponentInParent<PlayerInventory>() : null;
+            var ownerRoot = (player != null)
+                ? player.transform.root
+                : (inv ? inv.transform.root : page.transform.root);
+
+            var hostGO = page && page.pagerender ? page.pagerender.gameObject : page.gameObject;
+            var sentinel = hostGO.GetComponent<PageRasenganSentinel>() ?? hostGO.AddComponent<PageRasenganSentinel>();
+            sentinel.Init(ownerRoot);
+
             RasenganPlugin.Log?.LogDebug($"[Rasengan] Page collider count={pageCols.Length}");
 
             var collision = activeOrb.GetComponent<RasenganCollision>();
             if (!collision) collision = activeOrb.AddComponent<RasenganCollision>();
 
-            float sphereRadius = 0.60f;
-            float lifeSeconds  = 10f;
-
-            collision.baseDamage                 = 24f;
-            collision.damagePerLevel             = 6f;
-            collision.knockbackLevelDistPerLevel = 0.40f;
-            collision.knockbackLevelDistMax      = 3.00f;
-            collision.castingLevel               = castingLevel;
-            collision.Init(ownerRoot, castingLevel, pageCols, sphereRadius, lifeSeconds);
+            collision.Init(ownerRoot, castingLevel, pageCols, lifeSeconds);
 
             activeOrb.transform.localPosition = new Vector3(0f, 0f, 0.30f);
             activeOrb.transform.localRotation = Quaternion.identity;
@@ -239,5 +241,21 @@ namespace RasenganSpell
                 if (_latch && !gameObject.scene.isLoaded) _latch.Release();
             }
         }
+        
+        private sealed class PageRasenganSentinel : MonoBehaviour
+        {
+            Transform _ownerRoot;
+            public void Init(Transform ownerRoot) => _ownerRoot = ownerRoot;
+
+            void OnDisable() { Cleanup("page-disabled"); }
+            void OnDestroy() { Cleanup("page-destroyed"); }
+
+            void Cleanup(string reason)
+            {
+                var root = _ownerRoot ? _ownerRoot : transform.root;
+                if (root) RasenganOrbRegistry.DestroyAllUnder(root, reason);
+            }
+        }
+
     }
 }

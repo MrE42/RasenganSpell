@@ -1,4 +1,4 @@
-﻿# RasenganSpell
+# RasenganSpell
 
 ---
 A custom spell mod for **Mage Arena** that lets you unleash Naruto’s iconic **Rasengan** (and eventually more).
@@ -13,9 +13,9 @@ A custom spell mod for **Mage Arena** that lets you unleash Naruto’s iconic **
 ---
 ## Changelog
 - **v1.0.0**
-    - Initial Rasengan spell, page assets, voice casting, basic collisions
+    - Initial release
       - Held-aim pose on **Left Mouse** (smooth in/out)
       - Player-only knockback with **level scaling**
-      - Audio support using the existing `AudioSource` clip
-      - Page visibility auto-restore after orb ends
-      - Slot-switching item overlap handling covered
+      - Included audio upon casting
+      - Page disappears while using spell
+      - Spell disappears when holding another item
