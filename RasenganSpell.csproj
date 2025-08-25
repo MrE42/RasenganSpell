@@ -49,6 +49,7 @@
   <ItemGroup>
     <!-- Bundle (prefer a few common spots) -->
     <BundleSrc Include="Assets\rasengan.bundle" Condition="Exists('Assets\rasengan.bundle')" />
+    <BundleSrc Include="Assets\rasenshuriken.bundle" Condition="Exists('Assets\rasenshuriken.bundle')" />
     <BundleSrc Include="Assets\Sprites\rasengan.bundle" Condition="Exists('Assets\Sprites\rasengan.bundle')" />
     <BundleSrc Include="rasengan.bundle" Condition="Exists('rasengan.bundle')" />
 
@@ -93,6 +94,7 @@
 
     <!-- 2) Bundle: prefer bin\ then fall back to source paths; place into Assets\ -->
     <ItemGroup>
+      <BundleBin Include="$(OutDir)rasenshuriken.bundle" Condition="Exists('$(OutDir)rasenshuriken.bundle')" />
       <BundleBin Include="$(OutDir)rasengan.bundle" Condition="Exists('$(OutDir)rasengan.bundle')" />
       <BundleBin Include="$(OutDir)rasengan" Condition="Exists('$(OutDir)rasengan')" />
     </ItemGroup>

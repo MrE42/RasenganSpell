@@ -18,7 +18,7 @@ namespace RasenganSpell
     [BepInProcess("MageArena")]
     [BepInDependency("com.d1gq.black.magic.api", BepInDependency.DependencyFlags.HardDependency)]
     [BepInDependency("com.magearena.modsync", BepInDependency.DependencyFlags.HardDependency)]
-    [BepInPlugin(PluginGuid, "RasenganSpell", "1.0.0")]
+    [BepInPlugin(PluginGuid, "RasenganSpell", "1.1.0")]
     public class RasenganPlugin : BaseUnityPlugin
     {
         /// <summary>Unique identifier for this plugin.</summary>
@@ -43,18 +43,18 @@ namespace RasenganSpell
             // Register: (plugin, logicType, dataType)
             try
             {
-                BlackMagicManager.RegisterSpell(this, typeof(RasenganData), typeof(RasenganLogic));
-                BlackMagicManager.RegisterDeathIcon(
-                    this,
-                    "rasengan",
-                    "Rasengan_Death"
-                );
-                Log.LogInfo("[Rasengan] Registered Rasengan spell with BlackMagic.");
+                BlackMagicManager.RegisterSpell(this, typeof(RasenganData),      typeof(RasenganLogic));
+                BlackMagicManager.RegisterSpell(this, typeof(RasenshurikenData), typeof(RasenshurikenLogic));
+
+                BlackMagicManager.RegisterDeathIcon(this, "rasengan",      "Rasengan_Death");
+                BlackMagicManager.RegisterDeathIcon(this, "rasenshuriken", "Rasenshuriken_Death");
+                Log.LogInfo("[Rasengan] Registered Rasengan + Rasenshuriken with BlackMagic.");
             }
             catch (Exception e)
             {
                 Log.LogError($"[Rasengan] RegisterSpell failed: {e}");
             }
+
             
             var rp = GraphicsSettings.currentRenderPipeline;
             string pipeline =
@@ -69,7 +69,7 @@ namespace RasenganSpell
 
         private void Update()
         {   
-            // F6: ask BlackMagic to spawn a Rasengan PAGE at the player's camera
+            // F6: ask BlackMagic to spawn a Rasenshuriken PAGE at the player's camera
             if (Input.GetKeyDown(KeyCode.F6) && debug)
             {
                 try
@@ -89,13 +89,13 @@ namespace RasenganSpell
                     Vector3 pos = anchor ? anchor.position + anchor.forward * 0.7f + anchor.up * 0.1f : Vector3.zero;
                     Quaternion rot = anchor ? Quaternion.LookRotation(anchor.forward, Vector3.up) : Quaternion.identity;
 
-                    // Spawn the Rasengan PAGE (uses RasenganLogic as the page definition)
-                    BlackMagicManager.SpawnSpell<RasenganLogic>(pos, rot);
-                    Log.LogInfo("[Rasengan] Debug page request (F6) spawned at camera.");
+                    // Spawn the Rasenshuriken PAGE (uses RasenshurikenLogic as the page definition)
+                    BlackMagicManager.SpawnSpell<RasenshurikenLogic>(pos, rot);
+                    Log.LogInfo("[Rasenshuriken] Debug page request (F6) spawned at camera.");
                 }
                 catch (Exception e)
                 {
-                    Log.LogWarning($"[Rasengan] F6 page spawn failed ({e.Message}).");
+                    Log.LogWarning($"[Rasenshuriken] F6 page spawn failed ({e.Message}).");
                     
                 }
             }
