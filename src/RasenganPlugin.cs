@@ -18,7 +18,7 @@ namespace RasenganSpell
     [BepInProcess("MageArena")]
     [BepInDependency("com.d1gq.black.magic.api", BepInDependency.DependencyFlags.HardDependency)]
     [BepInDependency("com.magearena.modsync", BepInDependency.DependencyFlags.HardDependency)]
-    [BepInPlugin(PluginGuid, "RasenganSpell", "1.0.0")]
+    [BepInPlugin(PluginGuid, "RasenganSpell", "1.0.1")]
     public class RasenganPlugin : BaseUnityPlugin
     {
         /// <summary>Unique identifier for this plugin.</summary>
@@ -32,7 +32,7 @@ namespace RasenganSpell
 
         public static string modsync = "all";
 
-        private static bool debug = false;
+        private static bool debug = true;
 
         private void Awake()
         {

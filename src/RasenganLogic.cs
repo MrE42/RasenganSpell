@@ -11,13 +11,13 @@ namespace RasenganSpell
         [SerializeField] private GameObject activeOrb;
 
         public static float lifeSeconds = 10.0f;
-        public override void CastSpell(GameObject player, PageController page, Vector3 spawnPos, Vector3 dir, int castingLevel)
+        public override bool CastSpell(PlayerMovement player, PageController page, Vector3 spawnPos, Vector3 dir, int castingLevel)
         {
             RasenganPlugin.Log?.LogInfo("[Rasengan] CastSpell invoked.");
             if (page == null)
             {
                 RasenganPlugin.Log?.LogWarning("[Rasengan] CastSpell: page was null.");
-                return;
+                return false;
             }
 
             var latch = PageVisibilityLatch.GetOrAdd(page.gameObject);
@@ -27,7 +27,7 @@ namespace RasenganSpell
             if (!activeOrb)
             {
                 latch.Release();
-                return;
+                return false;
             }
 
             activeOrb.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
@@ -82,6 +82,7 @@ namespace RasenganSpell
 
             Object.Destroy(activeOrb, lifeSeconds);
             RasenganPlugin.Log?.LogDebug($"[Rasengan] Orb ready. owner='{ownerRoot?.name ?? "null"}', level={castingLevel}");
+            return true;
         }
 
         // ===== AssetBundle spawn helper (unchanged) =====

@@ -12,6 +12,8 @@ A custom spell mod for **Mage Arena** that lets you unleash Naruto’s iconic **
 
 ---
 ## Changelog
+- **v1.0.1**
+    - Patched to work with BlackMagic v3
 - **v1.0.0**
     - Initial release
       - Held-aim pose on **Left Mouse** (smooth in/out)
