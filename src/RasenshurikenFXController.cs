@@ -19,8 +19,8 @@ namespace RasenganSpell
 #else
         [SerializeField] private bool enableDebugHotkeys = false; // flip true if you want this in release builds
 #endif
-        [SerializeField] private KeyCode debugInfuseKey   = KeyCode.F6;   // emulate teammate infusion (runs UpgradeRoutine)
-        [SerializeField] private KeyCode debugCompleteKey = KeyCode.None; // optional: e.g., F7 forces instant completion
+        [SerializeField] private KeyCode debugInfuseKey   = KeyCode.F7;   // emulate teammate infusion (runs UpgradeRoutine)
+        [SerializeField] private KeyCode debugCompleteKey = KeyCode.F8; // optional: e.g., F7 forces instant completion
         [SerializeField] private bool    logDebugHotkeys  = true;
 
         // ===== Spinner & Emission =====

@@ -32,7 +32,7 @@ namespace RasenganSpell
 
         public static string modsync = "all";
 
-        private static bool debug = false;
+        private static bool debug = true;
 
         private void Awake()
         {
