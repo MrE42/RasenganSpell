@@ -25,7 +25,7 @@ namespace RasenganSpell
         public static string PluginDir { get; private set; }
 
         public static string modsync = "all";
-        private static bool debug = true;
+        private static bool debug = false;
 
         // ==== Config entries ====
         private static ConfigEntry<string> _moveHoldBinding;   // e.g., "Mouse0", "Mouse1", "E", "LeftShift"
