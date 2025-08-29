@@ -9,8 +9,8 @@ namespace RasenganSpell
     public class RasenganLogic : SpellLogic
     {
         [SerializeField] private GameObject activeOrb;
-
         public static float lifeSeconds = 10.0f;
+
         public override bool CastSpell(PlayerMovement player, PageController page, Vector3 spawnPos, Vector3 dir, int castingLevel)
         {
             RasenganPlugin.Log?.LogInfo("[Rasengan] CastSpell invoked.");
@@ -43,7 +43,9 @@ namespace RasenganSpell
                 audio.minDistance = 4f;
                 audio.maxDistance = 22f;
                 audio.dopplerLevel = 0f;
-                audio.volume *= 0.75f;
+
+                // Use configurable volume multiplier (clamped 0..1)
+                audio.volume = Mathf.Clamp01(audio.volume * RasenganPlugin.AudioVolumeMultiplier);
             }
 
             var pageCols  = page.GetComponentsInChildren<Collider>(includeInactive: true);
@@ -60,7 +62,6 @@ namespace RasenganSpell
 
             var collision = activeOrb.GetComponent<RasenganCollision>();
             if (!collision) collision = activeOrb.AddComponent<RasenganCollision>();
-
             collision.Init(ownerRoot, castingLevel, pageCols, lifeSeconds);
 
             activeOrb.transform.localPosition = new Vector3(0f, 0f, 0.30f);
@@ -71,9 +72,9 @@ namespace RasenganSpell
                 anchor: page.transform,
                 homePos: activeOrb.transform.localPosition,
                 homeRot: activeOrb.transform.localRotation,
-                extendedOffset: new Vector3(.05f, .55f, -0.3f), // left, down, forward
-                extendedTiltEuler: new Vector3(-6f, 0f, -10f), // small aggressive tilt
-                moveLambda: 10f, // higher = snappier
+                extendedOffset: new Vector3(.05f, .55f, -0.3f),
+                extendedTiltEuler: new Vector3(-6f, 0f, -10f),
+                moveLambda: 10f,
                 rotateLambda: 10f
             );
 
@@ -141,7 +142,7 @@ namespace RasenganSpell
             }
         }
 
-        // ===== Extend animation & visibility latch (unchanged) =====
+        // ===== Extend animation & visibility latch (updated input) =====
         public sealed class RasenganHoldExtend : MonoBehaviour
         {
             Transform _anchor;
@@ -178,7 +179,9 @@ namespace RasenganSpell
 
             void Update()
             {
-                bool hold = Input.GetMouseButton(0);
+                // Use configurable binding (mouse or keyboard) instead of hardcoded Mouse0
+                bool hold = RasenganPlugin.HoldActive();
+
                 _targetPos = hold ? _homePos + _extendedOffset : _homePos;
                 _targetRot = hold ? _extendedRot : _homeRot;
 
@@ -193,43 +196,17 @@ namespace RasenganSpell
             }
         }
 
+        // (rest unchanged: PageVisibilityLatch, ReleaseOnDestroy, PageRasenganSentinel)
+        // ...
         private sealed class PageVisibilityLatch : MonoBehaviour
         {
             Renderer[] _renderers;
             int _locks;
-
-            void Awake()
-            {
-                _renderers = GetComponentsInChildren<Renderer>(includeInactive: true);
-            }
-
-            public static PageVisibilityLatch GetOrAdd(GameObject go)
-            {
-                var latch = go.GetComponent<PageVisibilityLatch>();
-                if (!latch) latch = go.AddComponent<PageVisibilityLatch>();
-                return latch;
-            }
-
-            public void Acquire()
-            {
-                if (_locks == 0) SetVisible(false);
-                _locks++;
-            }
-
-            public void Release()
-            {
-                _locks = Mathf.Max(0, _locks - 1);
-                if (_locks == 0) SetVisible(true);
-            }
-
-            void SetVisible(bool v)
-            {
-                if (_renderers == null || _renderers.Length == 0)
-                    _renderers = GetComponentsInChildren<Renderer>(true);
-
-                foreach (var r in _renderers)
-                    if (r) r.enabled = v;
-            }
+            void Awake() { _renderers = GetComponentsInChildren<Renderer>(includeInactive: true); }
+            public static PageVisibilityLatch GetOrAdd(GameObject go) { var l = go.GetComponent<PageVisibilityLatch>(); if (!l) l = go.AddComponent<PageVisibilityLatch>(); return l; }
+            public void Acquire() { if (_locks == 0) SetVisible(false); _locks++; }
+            public void Release() { _locks = Mathf.Max(0, _locks - 1); if (_locks == 0) SetVisible(true); }
+            void SetVisible(bool v) { if (_renderers == null || _renderers.Length == 0) _renderers = GetComponentsInChildren<Renderer>(true); foreach (var r in _renderers) if (r) r.enabled = v; }
         }
 
         private sealed class ReleaseOnDestroy : MonoBehaviour
@@ -237,26 +214,20 @@ namespace RasenganSpell
             PageVisibilityLatch _latch;
             public void Init(PageVisibilityLatch latch) => _latch = latch;
             void OnDestroy() { if (_latch) _latch.Release(); }
-            void OnDisable()
-            {
-                if (_latch && !gameObject.scene.isLoaded) _latch.Release();
-            }
+            void OnDisable() { if (_latch && !gameObject.scene.isLoaded) _latch.Release(); }
         }
-        
+
         private sealed class PageRasenganSentinel : MonoBehaviour
         {
             Transform _ownerRoot;
             public void Init(Transform ownerRoot) => _ownerRoot = ownerRoot;
-
             void OnDisable() { Cleanup("page-disabled"); }
             void OnDestroy() { Cleanup("page-destroyed"); }
-
             void Cleanup(string reason)
             {
                 var root = _ownerRoot ? _ownerRoot : transform.root;
                 if (root) RasenganOrbRegistry.DestroyAllUnder(root, reason);
             }
         }
-
     }
 }
